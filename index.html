@@ -101,6 +101,11 @@ details.tagbox>summary small{color:var(--muted);font-weight:400}
 .cols ul{margin:0;padding-left:18px}
 .cols li{margin:1px 0}
 .nudge{grid-column:1 / -1;font-size:13px;color:var(--muted)}
+details.open{grid-column:1 / -1}
+details.open>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;color:var(--accent);font-size:13px;font-weight:500;padding:4px 0}
+details.open>summary::-webkit-details-marker{display:none}
+details.open .cc,details.open[open] .oc{display:none} details.open[open] .cc{display:inline}
+details.open>.inner{display:grid;gap:10px;margin-top:8px}
 details.more{grid-column:1 / -1;font-size:13px}
 details.more>summary{cursor:pointer;color:var(--muted)}
 .full{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px;padding:10px 12px;background:var(--bg);border-radius:10px;font-size:13.5px;max-height:360px;overflow:auto}
@@ -251,6 +256,8 @@ const S = Object.assign({
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
 let pass = store.get("kn_pass") || "";
 let statuses = {};
+const openSet = new Set(); // listings the user has opened, kept when the list redraws
+document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches?.("details.open")) d.open ? openSet.add(d.dataset.open) : openSet.delete(d.dataset.open); }, true);
 let offset = 0, total = 0, loaded = [];
 let tagCounts = [];
 function persist(){ store.set("kn_state", JSON.stringify(S)); }
@@ -318,6 +325,8 @@ function list(title, arr){
   arr = (arr || []).filter(Boolean);
   return arr.length ? `<div><h4>${title}</h4><ul>${arr.map((x) => `<li>${esc(cap(x))}</li>`).join("")}</ul></div>` : "";
 }
+// Notes that only repeat what the badges and price already show (older distills) are left out.
+const DUP_NOTE = /\b(rent|deposit|available|availability|per month|monthly|bills?|utilities|furnished|registration|registered|size|sqm|students?)\b|m²/i;
 function buckets(r){
   const d = r.distilled;
   if (!d) return `<div class="nudge">Not read by AI yet. Distill sorts the ad into requirements, preferences, house rules, features and notes.</div>`;
@@ -328,10 +337,10 @@ function buckets(r){
   const stay = d.stay || {};
   const stayLine = [stay.min_months ? `Minimum ${stay.min_months} months` : "", stay.max_months ? `Maximum ${stay.max_months} months` : "", stay.fixed_end_date ? `Ends ${stay.fixed_end_date}` : ""].filter(Boolean);
   const costs = d.costs || {};
-  const costLine = [costs.bills && costs.bills !== "unclear" ? `Bills ${costs.bills}` : "", costs.deposit_note, ...(costs.other_fees || [])].filter(Boolean);
+  const costLine = [costs.bills && costs.bills !== "unclear" ? `Bills ${costs.bills}` : "", costs.deposit_note && !(r.deposit != null && /(€|eur)\s?\d|\d\s?(€|eur)/i.test(costs.deposit_note)) ? costs.deposit_note : "", ...(costs.other_fees || [])].filter(Boolean);
   return `<div class="cols">
     ${list("Language", langLine)}${list("Requirements", reqs)}${list("Preferences", d.preferences)}${list("House rules", d.house_rules)}
-    ${list("Stay and costs", [...stayLine, ...costLine])}${list("Features", d.features)}${list("Notes", d.notes)}
+    ${list("Stay and costs", [...stayLine, ...costLine])}${list("Features", d.features)}${list("Notes", (d.notes || []).filter((n) => !DUP_NOTE.test(n)))}
   </div>${d.registration_evidence ? `<div class="nudge">Registration: “${esc(d.registration_evidence)}”</div>` : ""}`;
 }
 function card(r){
@@ -344,7 +353,7 @@ function card(r){
     <div class="where"><div class="street">${esc(r.street)}</div>
       <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}</div></div>
     <div class="price"><div class="pp">${r.per_person != null ? eur(r.per_person) : eur(r.price)}<small> ${r.per_person != null ? "/pp" : "total"}</small></div>
-      <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${r.people}` : r.people == null ? "People unknown" : "Per month"}</div></div>
+      <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${r.people}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
       ${r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
       ${r.reg === "unknown" ? '<span class="badge">Registration unknown</span>' : ""}
@@ -352,11 +361,15 @@ function card(r){
     </div>
     ${d?.summary ? `<div class="summary">${esc(d.summary)}</div>` : ""}
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
+    <details class="open" data-open="${r.id}"${openSet.has(String(r.id)) ? " open" : ""}>
+    <summary><span class="oc">Open listing ▾</span><span class="cc">Close ▴</span>${st !== "new" ? ` <span class="stat" data-s="${st}">${cap(st)}</span>` : ""}</summary>
+    <div class="inner">
     ${buckets(r)}
     <details class="more" data-full="${r.id}"><summary>Full ad text</summary><div class="full">Loading…</div></details>
     <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${cap(s)}</option>`).join("")}</select></label>
       <button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>
       <a href="${esc(r.url)}" target="_blank" rel="noopener">Open on Kamernet ↗</a></div>
+    </div></details>
   </article>`;
 }
 function renderList(){
