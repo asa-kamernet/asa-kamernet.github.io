@@ -292,7 +292,7 @@ async function fn(name, opts = {}){
 
 // ---- Query building ----
 function filters(){
-  const p = ["gone_at=is.null"];
+  const p = ["gone_at=is.null", "dup_of=is.null"]; // reposts of an older live ad are hidden (dup_of)
   if (S.cities.length) p.push(`city=in.(${S.cities.map((c) => `"${c}"`).join(",")})`);
   if (S.kinds.length) p.push(`kind=in.(${S.kinds.join(",")})`);
   const ands = [];
@@ -465,8 +465,8 @@ async function loadStatuses(){
 }
 async function headline(){
   try {
-    const n = (await rest("listings?select=id&gone_at=is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
-    const nd = (await rest("listings?select=id&gone_at=is.null&distilled_at=not.is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
+    const n = (await rest("listings?select=id&gone_at=is.null&dup_of=is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
+    const nd = (await rest("listings?select=id&gone_at=is.null&dup_of=is.null&distilled_at=not.is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
     $("sub").textContent = `${Number(n).toLocaleString("en-GB")} listings saved · ${Number(nd).toLocaleString("en-GB")} distilled`;
   } catch { $("sub").textContent = "Live from Kamernet"; }
 }
