@@ -137,7 +137,7 @@ details.more>summary{cursor:pointer;color:var(--muted)}
         <option value="size_m2.desc.nullslast">Biggest first</option>
         <option value="available_from.asc.nullslast">Available soonest</option>
       </select>
-      <button class="btn" id="distill" type="button" disabled title="Needs the passcode">Distill 25</button>
+      <button class="btn" id="distill" type="button" disabled>Distill</button>
     </div>
   </div>
   <div class="msg" id="msg" role="status"></div>
@@ -329,10 +329,26 @@ function renderPanel(){
   $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
-  $("distill").disabled = !pass;
+  setDistillBtn();
   $("passbtn").textContent = pass ? "Lock" : "Unlock";
   $("pass").placeholder = pass ? "Passcode saved on this device" : "passcode";
   $("pass").value = "";
+}
+
+// ---- Distill button: shows how many it will read (up to 25), greyed out when everything in the view is done ----
+let undistilled = 0;
+function setDistillBtn(){
+  const n = Math.min(25, undistilled), b = $("distill");
+  b.textContent = `Distill ${n}`;
+  b.disabled = n === 0;
+  b.title = n === 0 ? "Everything in this view is already distilled" : pass ? `Read ${n} listing${n === 1 ? "" : "s"} with AI` : "Enter the passcode below first";
+}
+async function countUndistilled(){
+  try {
+    const r = await rest(`listings?select=id&${qs(["distilled_at=is.null", "limit=1"])}`, { Prefer: "count=exact" });
+    undistilled = Number((r.headers.get("content-range") || "").split("/")[1]) || 0;
+  } catch { undistilled = 0; }
+  setDistillBtn();
 }
 
 // ---- Loading ----
@@ -348,6 +364,7 @@ async function load(reset){
     total = Number((res.headers.get("content-range") || "").split("/")[1]) || rows.length;
     loaded = loaded.concat(rows); offset += rows.length;
     renderList();
+    if (reset) countUndistilled();
   } catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't load listings: " + e.message; }
 }
 async function loadTags(){ try { tagCounts = await (await rest("tag_counts?select=tag,n&order=n.desc&limit=200")).json(); renderTags(); } catch {} }
@@ -401,6 +418,7 @@ $("list").onchange = async (e) => {
   } catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save status: " + err.message; }
 };
 $("distill").onclick = async () => {
+  if (!pass){ $("msg").className = "msg err"; $("msg").textContent = "Enter the passcode below, press Unlock, then press Distill again."; $("lock").scrollIntoView({ block: "center" }); $("pass").focus(); return; }
   const btn = $("distill"); btn.disabled = true; $("msg").className = "msg";
   try {
     $("msg").textContent = "Finding the first 25 listings that haven't been distilled…";
@@ -408,10 +426,12 @@ $("distill").onclick = async () => {
     if (!ids.length){ $("msg").textContent = "Everything in this view is already distilled."; return; }
     $("msg").textContent = `Distilling ${ids.length} listings… this takes about ${Math.max(10, ids.length)} seconds.`;
     const r = await fn("distill", { method: "POST", body: JSON.stringify({ ids }) });
-    $("msg").textContent = `Distilled ${r.distilled}${r.failed?.length ? `, ${r.failed.length} failed (${r.failed[0].error})` : ""} · cost $${r.total_cost_usd}`;
+    const done = `Distilled ${r.distilled}${r.failed?.length ? `, ${r.failed.length} failed (${r.failed[0].error})` : ""} · cost $${r.total_cost_usd}`;
+    $("msg").textContent = done;
     await Promise.all([load(true), headline(), loadTags()]);
+    $("msg").className = "msg"; $("msg").textContent = done; // the reload clears the message, so show it again
   } catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Distill failed: " + e.message; }
-  finally { btn.disabled = !pass; }
+  finally { setDistillBtn(); }
 };
 
 // ---- Start ----
