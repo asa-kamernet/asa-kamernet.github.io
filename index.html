@@ -109,6 +109,18 @@ details.more>summary{cursor:pointer;color:var(--muted)}
 .stat{border-radius:8px;border:1px solid var(--line);background:var(--bg);padding:3px 8px;font-size:13px}
 .stat[data-s="interested"]{background:var(--accent-soft)} .stat[data-s="applied"],.stat[data-s="replied"],.stat[data-s="viewing"]{background:var(--ok-soft)} .stat[data-s="rejected"],.stat[data-s="dead"]{background:var(--bad-soft)}
 .more-btn{display:flex;justify-content:center;padding:6px 0}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+#app{display:flex;flex-direction:column;gap:14px}
+#app[hidden],#lock[hidden]{display:none}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px))}
+dialog::backdrop{background:rgba(10,16,22,.55)}
+.dlg{padding:16px;display:flex;flex-direction:column;gap:10px}
+.dlg h3{margin:0;font-size:17px}
+.dlg small{color:var(--muted)}
+.dlg textarea{width:100%;min-height:160px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:10px;font:inherit;line-height:1.45;resize:vertical}
+.dlg .warns{margin:0;padding:8px 10px 8px 26px;background:var(--warn-soft);color:var(--warn);border-radius:10px;font-size:13px}
+.dlg .row-btn{display:flex;flex-wrap:wrap;gap:8px}
+.actions .apply{padding:4px 12px}
 .empty{color:var(--muted);padding:28px 0;text-align:center}
 @media (max-width:520px){.card{grid-template-columns:60px minmax(0,1fr) auto}.thumb{width:60px;height:60px}.pp{font-size:19px}.label{min-width:100%}}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:background .12s,color .12s}}
@@ -116,11 +128,18 @@ details.more>summary{cursor:pointer;color:var(--muted)}
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>Kamernet Live</h1>
-    <p class="sub" id="sub">Loading listings…</p>
+  <header class="hdr">
+    <div><h1>Kamernet Live</h1><p class="sub" id="sub">Private tool</p></div>
+    <button class="btn ghost" id="lockbtn" type="button" hidden>Lock</button>
   </header>
 
+  <section class="lock" id="lock" aria-label="Passcode">
+    <span id="gatemsg">Private tool. Enter the passcode to open it.</span>
+    <input type="password" id="pass" autocomplete="current-password" placeholder="passcode" aria-label="Passcode">
+    <button class="btn" id="passbtn" type="button">Unlock</button>
+  </section>
+
+  <div id="app" hidden>
   <section class="filters" aria-label="Filters">
     <div class="row"><span class="label">City</span><div class="chips" id="cities" role="group" aria-label="City"></div></div>
     <div class="row">
@@ -155,15 +174,24 @@ details.more>summary{cursor:pointer;color:var(--muted)}
   </div>
   <div class="msg" id="msg" role="status"></div>
 
-  <section class="lock" id="lock" aria-label="Passcode">
-    <span>Passcode for Distill and statuses:</span>
-    <input type="password" id="pass" autocomplete="current-password" placeholder="passcode" aria-label="Passcode">
-    <button class="btn ghost" id="passbtn" type="button">Unlock</button>
-  </section>
-
   <div class="list" id="list"></div>
   <div class="more-btn"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
+  </div>
 </div>
+
+<dialog id="applyDlg" aria-labelledby="applyTitle"><div class="dlg">
+  <h3 id="applyTitle">Apply Assist</h3>
+  <small id="applyInfo"></small>
+  <ul class="warns" id="applyWarns" hidden></ul>
+  <textarea id="applyText" aria-label="Draft message"></textarea>
+  <small id="applyNotes"></small>
+  <div class="row-btn">
+    <button class="btn" id="applyGo" type="button" disabled>Copy and open Kamernet</button>
+    <button class="btn ghost" id="applyDone" type="button" disabled>I sent it: mark as applied</button>
+    <button class="btn ghost" id="applyClose" type="button">Close</button>
+  </div>
+  <small>Nothing is sent from here. Paste the message into Kamernet's form and press send yourself.</small>
+</div></dialog>
 
 <script>
 // ---- Settings (public values only; the passcode is typed in the browser and never stored in this file) ----
@@ -212,14 +240,23 @@ let tagCounts = [];
 function persist(){ store.set("kn_state", JSON.stringify(S)); }
 
 // ---- Supabase calls ----
+function lockOut(msg){
+  pass = ""; store.set("kn_pass", ""); statuses = {};
+  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true;
+  $("gatemsg").textContent = msg || "Private tool. Enter the passcode to open it.";
+}
+// All data goes through the passcode-protected "data" function; nothing is publicly readable.
 async function rest(path, extra = {}){
-  const res = await fetch(`${SUPA}/rest/v1/${path}`, { headers: { apikey: KEY, ...extra } });
+  const i = path.indexOf("?"), table = i < 0 ? path : path.slice(0, i), q = i < 0 ? "" : path.slice(i + 1);
+  const res = await fetch(`${SUPA}/functions/v1/data?table=${table}${q ? "&" + q : ""}`, { headers: { "x-passcode": pass, ...extra } });
+  if (res.status === 401){ lockOut("Wrong passcode. Try again."); throw new Error("Wrong passcode"); }
   if (!res.ok) throw new Error(`Database ${res.status}`);
   return res;
 }
 async function fn(name, opts = {}){
   const res = await fetch(`${SUPA}/functions/v1/${name}`, { ...opts, headers: { "x-passcode": pass, "content-type": "application/json", ...(opts.headers||{}) } });
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401) lockOut("Wrong passcode. Try again.");
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 }
@@ -302,6 +339,7 @@ function card(r){
     ${buckets(r)}
     <details class="more" data-full="${r.id}"><summary>Full ad text</summary><div class="full">Loading…</div></details>
     <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${cap(s)}</option>`).join("")}</select></label>
+      <button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>
       <a href="${esc(r.url)}" target="_blank" rel="noopener">Open on Kamernet ↗</a></div>
   </article>`;
 }
@@ -343,9 +381,6 @@ function renderPanel(){
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
   setDistillBtn();
-  $("passbtn").textContent = pass ? "Lock" : "Unlock";
-  $("pass").placeholder = pass ? "Passcode saved on this device" : "passcode";
-  $("pass").value = "";
 }
 
 // ---- Distill button: shows how many it will read (up to 25), greyed out when everything in the view is done ----
@@ -405,13 +440,60 @@ $("taggroups").onclick = (e) => {
   if (!S.tags[t]) S.tags[t] = "in"; else if (S.tags[t] === "in") S.tags[t] = "out"; else delete S.tags[t];
   persist(); renderTags(); load(true);
 };
+async function boot(){
+  renderPanel();
+  await loadStatuses();
+  renderPanel();
+  await Promise.all([load(true), headline(), loadTags()]);
+}
+function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; boot().catch(() => {}); }
 $("passbtn").onclick = async () => {
-  const v = $("pass").value.trim();
-  if (!v && pass){ pass = ""; store.set("kn_pass", ""); statuses = {}; renderPanel(); renderList(); return; }
-  if (!v) return;
-  pass = v; store.set("kn_pass", v);
-  await loadStatuses(); renderPanel(); renderList();
+  const v = $("pass").value.trim(); if (!v) return;
+  pass = v; store.set("kn_pass", v); $("pass").value = "";
+  try { await rest("listings?select=id&limit=1"); } catch { return; }
+  enterApp();
 };
+$("pass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("passbtn").click(); });
+$("lockbtn").onclick = () => lockOut("Locked. Enter the passcode to open it again.");
+
+// ---- Apply Assist: writes the message, copies it and opens Kamernet's form. You send it yourself. ----
+let applyCtx = null;
+async function openApply(id){
+  const r = loaded.find((x) => String(x.id) === String(id));
+  applyCtx = { id, app: null };
+  const prev = statuses[id];
+  $("applyTitle").textContent = `Apply: ${r?.street || id}${r?.city ? ", " + r.city : ""}`;
+  $("applyInfo").textContent = prev && prev.status !== "new" ? `Status now: ${cap(prev.status)}${prev.note ? " · " + prev.note : ""}` : "";
+  $("applyWarns").hidden = true; $("applyText").value = "Writing your message…"; $("applyText").disabled = true;
+  $("applyNotes").textContent = ""; $("applyGo").disabled = true; $("applyDone").disabled = true;
+  $("applyDlg").showModal();
+  try {
+    const d = await fn("apply", { method: "POST", body: JSON.stringify({ id: Number(id) }) });
+    applyCtx.app = d;
+    $("applyText").value = d.message; $("applyText").disabled = false;
+    if ((d.warnings || []).length){ $("applyWarns").innerHTML = d.warnings.map((x) => `<li>${esc(x)}</li>`).join(""); $("applyWarns").hidden = false; }
+    $("applyNotes").textContent = [...(d.unanswered || []).map((x) => "The ad also asks: " + x), ...(d.notes || [])].join(" · ");
+    $("applyGo").disabled = false; $("applyDone").disabled = false;
+  } catch (e) { $("applyText").value = "Couldn't write the draft: " + e.message; }
+}
+$("list").addEventListener("click", (e) => { const b = e.target.closest("button.apply"); if (b) openApply(b.dataset.id); });
+$("applyGo").onclick = () => {
+  const p = navigator.clipboard?.writeText($("applyText").value);       // both calls run inside this tap, so browsers allow them
+  window.open(applyCtx.app.form_url, "_blank", "noopener");
+  const ok = "Copied. Paste it into Kamernet's form, send it, then come back and press “I sent it”.";
+  if (p) p.then(() => { $("applyNotes").textContent = ok; }).catch(() => { $("applyText").select(); $("applyNotes").textContent = "Couldn't copy automatically. The text is selected: copy it and paste it in Kamernet."; });
+  else { $("applyText").select(); $("applyNotes").textContent = "Copy the selected text and paste it in Kamernet."; }
+};
+$("applyDone").onclick = async () => {
+  const id = applyCtx.id;
+  try {
+    await fn("status", { method: "POST", body: JSON.stringify({ id: Number(id), status: "applied", note: `Applied ${new Date().toISOString().slice(0, 10)} via Apply Assist` }) });
+    if (applyCtx.app?.application_id) await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: applyCtx.app.application_id }) });
+    statuses[id] = { ...(statuses[id] || {}), status: "applied" };
+    $("applyDlg").close(); renderList(); $("msg").className = "msg"; $("msg").textContent = "Marked as applied.";
+  } catch (e) { $("applyNotes").textContent = "Couldn't save: " + e.message; }
+};
+$("applyClose").onclick = () => $("applyDlg").close();
 $("list").addEventListener("toggle", async (e) => {
   const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.full || d.dataset.loaded) return;
   d.dataset.loaded = "1";
@@ -448,12 +530,7 @@ $("distill").onclick = async () => {
 };
 
 // ---- Start ----
-(async () => {
-  renderPanel();
-  await loadStatuses();
-  renderPanel();
-  await Promise.all([load(true), headline(), loadTags()]);
-})();
+if (pass) enterApp();
 </script>
 </body>
 </html>
