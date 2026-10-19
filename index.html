@@ -156,6 +156,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   <section class="filters" aria-label="Filters">
     <div class="row"><span class="label">City</span><div class="chips" id="cities" role="group" aria-label="City"></div></div>
     <div class="row">
+      <label class="field">People sharing <input type="range" id="ppl" min="1" max="4" step="1" value="4"><output id="pplo">Up to 4</output></label>
       <label class="field">Max per person <input type="range" id="max" min="300" max="2500" step="25" value="900"><output id="maxo">€900</output></label>
       <input type="search" id="q" placeholder="Search street or city" aria-label="Search street or city">
     </div>
@@ -253,6 +254,7 @@ const S = Object.assign({
   cities: [], max: 900, q: "", kinds: [], reg: "any", dist: "any", stat: "any", cheap: "hide",
   tags: {}, // tag -> "in" | "out"
   sort: "per_person.asc.nullslast",
+  ppl: 4,
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
 let pass = store.get("kn_pass") || "";
 let statuses = {};
@@ -260,6 +262,10 @@ const openSet = new Set(); // listings the user has opened, kept when the list r
 document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches?.("details.open")) d.open ? openSet.add(d.dataset.open) : openSet.delete(d.dataset.open); }, true);
 let offset = 0, total = 0, loaded = [];
 let tagCounts = [];
+// Whole-place listings that allow several people: the rent is split over the people you choose (never more than the ad allows).
+// Single rooms (people = 1) are not split.
+const divisor = (r) => r.people == null ? null : r.people > 1 ? Math.max(1, Math.min(S.ppl, r.people)) : 1;
+const ppOf = (r) => { const d = divisor(r); return d ? Math.round(r.price / d) : null; };
 function persist(){ store.set("kn_state", JSON.stringify(S)); }
 
 // ---- Supabase calls ----
@@ -290,7 +296,13 @@ function filters(){
   if (S.cities.length) p.push(`city=in.(${S.cities.map((c) => `"${c}"`).join(",")})`);
   if (S.kinds.length) p.push(`kind=in.(${S.kinds.join(",")})`);
   const ands = [];
-  if (S.max < 2500) ands.push(`or(per_person.lte.${S.max},per_person.is.null)`);
+  if (S.max < 2500){
+    // price / min(slider, people allowed) <= max, written out for each number of people allowed
+    const alts = ["people.is.null", `and(people.lte.1,price.lte.${S.max})`];
+    for (let k = 2; k < S.ppl; k++) alts.push(`and(people.eq.${k},price.lte.${S.max * k})`);
+    if (S.ppl >= 2) alts.push(`and(people.gte.${S.ppl},price.lte.${S.max * S.ppl})`);
+    ands.push(`or(${alts.join(",")})`);
+  }
   if (S.cheap !== "show") ands.push("or(per_person.gte.250,per_person.is.null)"); // prices under 250 are almost always typos
   const q = S.q.trim().replace(/[(),*"]/g, " ").trim();
   if (q) ands.push(`or(street.ilike.*${q}*,city.ilike.*${q}*)`);
@@ -352,8 +364,8 @@ function card(r){
     <div class="thumb" style="${r.photos?.[0] ? `background-image:url('${esc(r.photos[0])}')` : ""}" role="img" aria-label="Photo"></div>
     <div class="where"><div class="street">${esc(r.street)}</div>
       <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}</div></div>
-    <div class="price"><div class="pp">${r.per_person != null ? eur(r.per_person) : eur(r.price)}<small> ${r.per_person != null ? "/pp" : "total"}</small></div>
-      <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${r.people}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
+    <div class="price"><div class="pp">${ppOf(r) != null ? eur(ppOf(r)) : eur(r.price)}<small> ${ppOf(r) != null ? "/pp" : "total"}</small></div>
+      <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${divisor(r)}${divisor(r) < r.people ? ` (up to ${r.people})` : ""}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
       ${r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
       ${r.reg === "unknown" ? '<span class="badge">Registration unknown</span>' : ""}
@@ -373,6 +385,7 @@ function card(r){
   </article>`;
 }
 function renderList(){
+  if (S.sort.startsWith("per_person")){ const k = (r) => ppOf(r) ?? 1e9, dir = S.sort.includes(".desc") ? -1 : 1; loaded.sort((a, b) => dir * (k(a) - k(b))); }
   $("list").innerHTML = loaded.length ? loaded.map(card).join("") : '<div class="empty">Nothing matches these filters.</div>';
   const nd = loaded.filter((r) => r.distilled_at).length;
   $("count").textContent = `${total.toLocaleString("en-GB")} listing${total === 1 ? "" : "s"} · showing ${loaded.length} (${nd} distilled)`;
@@ -406,7 +419,7 @@ function renderPanel(){
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
   chips($("stat"), [["any","Any"],...STATUSES.map((s) => [s, cap(s)])], "stat", (v) => { S.stat = v; }, false);
-  $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
+  $("ppl").value = S.ppl; pplText(); $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
   setDistillBtn(); setAutoBtn();
@@ -459,6 +472,9 @@ async function headline(){
 }
 
 // ---- Events ----
+const pplText = () => { $("pplo").textContent = S.ppl >= 4 ? "Up to 4" : S.ppl === 1 ? "1 (just me)" : `${S.ppl} people`; };
+$("ppl").oninput = (e) => { S.ppl = Number(e.target.value); pplText(); renderList(); };
+$("ppl").onchange = () => { persist(); load(true); };
 $("max").oninput = (e) => { S.max = Number(e.target.value); $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max); };
 $("max").onchange = () => { persist(); load(true); };
 let qt; $("q").oninput = (e) => { S.q = e.target.value; clearTimeout(qt); qt = setTimeout(() => { persist(); load(true); }, 350); };
