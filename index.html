@@ -121,6 +121,14 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .dlg .warns{margin:0;padding:8px 10px 8px 26px;background:var(--warn-soft);color:var(--warn);border-radius:10px;font-size:13px}
 .dlg .row-btn{display:flex;flex-wrap:wrap;gap:8px}
 .actions .apply{padding:4px 12px}
+.btn.alt{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.btn.alt[disabled]{opacity:.5}
+#queueDlg{width:min(720px,calc(100vw - 32px));max-height:92vh}
+.qhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.qlist{display:flex;flex-direction:column;gap:12px}
+.qitem{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.qitem h4{margin:0;font-size:15px}
+.qitem textarea{min-height:120px}
 .empty{color:var(--muted);padding:28px 0;text-align:center}
 @media (max-width:520px){.card{grid-template-columns:60px minmax(0,1fr) auto}.thumb{width:60px;height:60px}.pp{font-size:19px}.label{min-width:100%}}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:background .12s,color .12s}}
@@ -170,6 +178,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
         <option value="available_from.asc.nullslast">Available soonest</option>
       </select>
       <button class="btn" id="distill" type="button" disabled>Distill</button>
+      <button class="btn alt" id="auto" type="button" disabled>Auto apply</button>
     </div>
   </div>
   <div class="msg" id="msg" role="status"></div>
@@ -191,6 +200,13 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
     <button class="btn ghost" id="applyClose" type="button">Close</button>
   </div>
   <small>Nothing is sent from here. Paste the message into Kamernet's form and press send yourself.</small>
+</div></dialog>
+
+<dialog id="queueDlg" aria-labelledby="queueTitle"><div class="dlg">
+  <div class="qhead"><h3 id="queueTitle">Review applications</h3><button class="btn ghost" id="queueClose" type="button">Close</button></div>
+  <small id="queueInfo"></small>
+  <div class="qlist" id="queueList"></div>
+  <small>Nothing is sent from here. For each one: copy it, paste it into Kamernet's form, send it yourself, then press “I sent it”.</small>
 </div></dialog>
 
 <script>
@@ -380,7 +396,7 @@ function renderPanel(){
   $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
-  setDistillBtn();
+  setDistillBtn(); setAutoBtn();
 }
 
 // ---- Distill button: shows how many it will read (up to 25), greyed out when everything in the view is done ----
@@ -412,7 +428,7 @@ async function load(reset){
     total = Number((res.headers.get("content-range") || "").split("/")[1]) || rows.length;
     loaded = loaded.concat(rows); offset += rows.length;
     renderList();
-    if (reset) countUndistilled();
+    if (reset){ countUndistilled(); refreshEligible(); }
   } catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't load listings: " + e.message; }
 }
 async function loadTags(){ try { tagCounts = await (await rest("tag_counts?select=tag,n&order=n.desc&limit=200")).json(); renderTags(); } catch {} }
@@ -494,6 +510,66 @@ $("applyDone").onclick = async () => {
   } catch (e) { $("applyNotes").textContent = "Couldn't save: " + e.message; }
 };
 $("applyClose").onclick = () => $("applyDlg").close();
+
+// ---- Auto apply: writes drafts for the distilled listings in this view that you can realistically apply to. It sends NOTHING. ----
+let eligible = [], queueDrafts = [];
+const BLOCKING = "students-only,women-only,dutch-only,offsite-contact,scam-risk";
+function setAutoBtn(){
+  const n = Math.min(10, eligible.length), b = $("auto");
+  b.textContent = `Auto apply ${n}`;
+  b.disabled = n === 0;
+  b.title = n === 0 ? "No listing in this view is distilled, open to you and not applied to yet (students-only, women-only, Dutch-only, risky and 3-person ads are left out)" : `Write ${n} application draft${n === 1 ? "" : "s"} for you to review. Nothing is sent.`;
+}
+async function refreshEligible(){
+  try {
+    const rows = await (await rest(`listings?select=id&${qs(["distilled_at=not.is.null", `all_tags=not.ov.{${BLOCKING}}`, "people=lte.2", "limit=80"])}`)).json();
+    eligible = rows.map((r) => r.id).filter((id) => ["new", "interested"].includes(statuses[id]?.status || "new"));
+  } catch { eligible = []; }
+  setAutoBtn();
+}
+function renderQueue(drafts, cost){
+  queueDrafts = drafts;
+  $("queueInfo").textContent = `${drafts.filter((d) => !d.error).length} drafts ready · cost $${cost ?? 0}. Check each one before you send it.`;
+  $("queueList").innerHTML = drafts.map((d, i) => {
+    if (d.error) return `<div class="qitem"><h4>${esc(d.street || d.id)}</h4><small>${esc(d.error)}</small></div>`;
+    const extra = [...(d.unanswered || []).map((x) => "The ad also asks: " + x), ...(d.notes || [])].join(" · ");
+    return `<section class="qitem" data-i="${i}">
+      <h4>${esc(d.street)}, ${esc(d.city)} · ${d.per_person != null ? eur(d.per_person) + " /pp" : eur(d.price)}</h4>
+      ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      <textarea aria-label="Draft for ${esc(d.street)}">${esc(d.message)}</textarea>
+      ${extra ? `<small>${esc(extra)}</small>` : ""}
+      <div class="row-btn"><button class="btn q-go" type="button">Copy and open Kamernet</button><button class="btn ghost q-done" type="button">I sent it</button><button class="btn ghost q-skip" type="button">Skip</button></div>
+    </section>`;
+  }).join("");
+}
+$("auto").onclick = async () => {
+  const ids = eligible.slice(0, 10); if (!ids.length) return;
+  $("queueList").innerHTML = "";
+  $("queueInfo").textContent = `Writing ${ids.length} drafts… about ${Math.max(10, ids.length * 3)} seconds.`;
+  $("queueDlg").showModal();
+  try { const r = await fn("apply", { method: "POST", body: JSON.stringify({ ids }) }); renderQueue(r.drafts || [], r.total_cost_usd); }
+  catch (e) { $("queueInfo").textContent = "Couldn't write the drafts: " + e.message; }
+};
+$("queueList").addEventListener("click", async (e) => {
+  const sec = e.target.closest(".qitem[data-i]"); if (!sec) return;
+  const d = queueDrafts[Number(sec.dataset.i)], ta = sec.querySelector("textarea");
+  if (e.target.closest(".q-go")){
+    const p = navigator.clipboard?.writeText(ta.value);          // copy and open run inside this tap, so browsers allow both
+    window.open(d.form_url, "_blank", "noopener");
+    if (p) p.then(() => { $("queueInfo").textContent = `Copied the message for ${d.street}. Paste it in Kamernet, send it, then press “I sent it”.`; }).catch(() => ta.select());
+    else ta.select();
+  } else if (e.target.closest(".q-done")){
+    try {
+      await fn("status", { method: "POST", body: JSON.stringify({ id: Number(d.id), status: "applied", note: `Applied ${new Date().toISOString().slice(0, 10)} via Auto apply (reviewed by me)` }) });
+      if (d.application_id) await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: d.application_id }) });
+      statuses[d.id] = { ...(statuses[d.id] || {}), status: "applied" };
+      sec.remove(); refreshEligible(); renderList();
+      $("queueInfo").textContent = `Marked ${d.street} as applied.`;
+    } catch (err) { $("queueInfo").textContent = "Couldn't save: " + err.message; }
+  } else if (e.target.closest(".q-skip")){ sec.remove(); }
+  if (!$("queueList").querySelector(".qitem[data-i]")) $("queueDlg").close();
+});
+$("queueClose").onclick = () => $("queueDlg").close();
 $("list").addEventListener("toggle", async (e) => {
   const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.full || d.dataset.loaded) return;
   d.dataset.loaded = "1";
