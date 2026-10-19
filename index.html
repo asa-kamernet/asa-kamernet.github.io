@@ -7,10 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: sticky filter panel above one column of listing cards; price per person is the big number; distilled listings carry a blue badge and a summary line. */
+/* Layout: header, one filter card (basic filters, then tags grouped by topic), a sticky action bar, then one column of listing cards.
+   Badges are tinted by meaning: green = good for you, amber = restricts who can rent, red = problem, grey = neutral. Price per person is the big number. */
 :root{
   --bg:#f2f4f6; --surface:#ffffff; --ink:#15202b; --muted:#5b6978; --line:#dce2e8;
-  --accent:#0b62c4; --accent-soft:#e1edfb; --ok:#1c7a4b; --ok-soft:#dff2e8; --warn:#9a5b00; --warn-soft:#fbefd3; --bad:#b3261e; --bad-soft:#fbe4e2;
+  --accent:#0b62c4; --accent-soft:#e1edfb; --ok:#1c7a4b; --ok-soft:#dff2e8; --warn:#8f5700; --warn-soft:#fbefd3; --bad:#b3261e; --bad-soft:#fbe4e2;
   --sans:"IBM Plex Sans",system-ui,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
@@ -23,63 +24,80 @@
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 56px}
-.wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.wrap{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 h1{font-size:clamp(24px,5vw,32px);line-height:1.1;margin:0;font-weight:600;letter-spacing:-.01em}
 .sub{color:var(--muted);margin:4px 0 0;font-size:14px}
 button,select,input{font:inherit;color:inherit}
 a{color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.panel{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--line)}
+.filters{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
-.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 11px;font-size:13px;cursor:pointer;line-height:1.4}
+.label{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-width:78px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;flex:1 1 0}
+.chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:3px 11px;font-size:13px;cursor:pointer;line-height:1.5}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .chip.in{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
 .chip.out{background:var(--bad-soft);color:var(--bad);border-color:var(--bad);text-decoration:line-through}
-.chip small{font-family:var(--mono);opacity:.7;margin-left:4px}
-.field{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
-.field input[type=range]{width:min(220px,46vw);accent-color:var(--accent)}
-.field output{font-family:var(--mono);color:var(--ink);min-width:64px}
-input[type=search],select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;font-size:14px;min-width:0}
-input[type=search]{flex:1 1 160px}
-.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.chip small{font-family:var(--mono);opacity:.65;margin-left:5px;font-size:11px}
+.field{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);flex:1 1 300px}
+.field input[type=range]{flex:1 1 140px;min-width:0;accent-color:var(--accent)}
+.field output{font-family:var(--mono);color:var(--ink);min-width:62px;text-align:right}
+input[type=search],select{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 10px;font-size:14px;min-width:0}
+input[type=search]{flex:1 1 180px}
+.subs{display:flex;flex-wrap:wrap;gap:12px 28px}
+.subs .row{flex:1 1 230px;flex-direction:column;align-items:flex-start;gap:5px}
+.subs .row.wide{flex-basis:100%}
+.subs .label{min-width:0}
+details.tagbox{border-top:1px solid var(--line);padding-top:10px}
+details.tagbox>summary{cursor:pointer;font-weight:500;font-size:14px;display:flex;gap:8px;align-items:center}
+details.tagbox>summary small{color:var(--muted);font-weight:400}
+.groups{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.hint{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
 .count{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .btn{border:1px solid var(--accent);background:var(--accent);color:var(--surface);border-radius:8px;padding:7px 14px;font-weight:500;cursor:pointer}
 .btn.ghost{background:transparent;color:var(--accent)}
 .btn[disabled]{opacity:.5;cursor:default}
-.lock{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.lock{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
 .lock input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 10px;min-width:0;flex:1 1 140px}
 .msg{font-size:13px;color:var(--muted);min-height:1.2em}
 .msg.err{color:var(--bad)}
-.list{display:flex;flex-direction:column;gap:10px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:6px 12px}
-.thumb{width:72px;height:72px;border-radius:8px;background:var(--bg) center/cover;grid-row:1 / span 2}
+.list{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:8px 14px}
+.thumb{width:76px;height:76px;border-radius:10px;background:var(--bg) center/cover;grid-row:1 / span 2}
 .where{min-width:0}
-.street{font-weight:600;overflow-wrap:anywhere}
+.street{font-weight:600;font-size:16px;overflow-wrap:anywhere}
 .meta{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:2px 10px}
 .price{text-align:right;font-variant-numeric:tabular-nums}
 .pp{font-size:22px;font-weight:600;line-height:1.1;font-family:var(--mono)}
 .pp small{font:12px var(--sans);color:var(--muted)}
 .tot{font-size:12px;color:var(--muted)}
-.tags{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
-.tag{font-size:11.5px;padding:1px 8px;border-radius:6px;background:var(--bg);color:var(--muted)}
-.tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.bad{background:var(--bad-soft);color:var(--bad)} .tag.warn{background:var(--warn-soft);color:var(--warn)}
-.dist{font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:6px;background:var(--accent);color:var(--surface)}
-.undist{font-size:11.5px;padding:0 8px;border-radius:6px;border:1px dashed var(--line);color:var(--muted)}
-.summary{grid-column:1 / -1;font-size:14px}
+.badges{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.badge{font-size:12px;font-weight:500;padding:2px 9px;border-radius:7px;background:var(--bg);color:var(--muted);border:1px solid transparent;white-space:nowrap}
+.badge.good{background:var(--ok-soft);color:var(--ok)}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.bad{background:var(--bad-soft);color:var(--bad)}
+.badge.lang{border-color:currentColor}
+.state{font-size:12px;font-weight:600;padding:2px 9px;border-radius:7px}
+.state.on{background:var(--accent);color:var(--surface)}
+.state.off{border:1px dashed var(--line);color:var(--muted);font-weight:400}
+.summary{grid-column:1 / -1;font-size:14.5px}
 .flags{grid-column:1 / -1;font-size:13px;color:var(--bad)}
-.actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px}
+.cols{grid-column:1 / -1;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 18px;font-size:13.5px}
+.cols h4{margin:0 0 3px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.cols ul{margin:0;padding-left:18px}
+.cols li{margin:1px 0}
+.nudge{grid-column:1 / -1;font-size:13px;color:var(--muted)}
+details.more{grid-column:1 / -1;font-size:13px}
+details.more>summary{cursor:pointer;color:var(--muted)}
+.full{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px;padding:10px 12px;background:var(--bg);border-radius:10px;font-size:13.5px;max-height:360px;overflow:auto}
+.actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;border-top:1px solid var(--line);padding-top:10px}
 .actions a{margin-left:auto}
-details{grid-column:1 / -1;font-size:13px}
-details summary{cursor:pointer;color:var(--muted)}
-dl{display:grid;grid-template-columns:max-content 1fr;gap:3px 12px;margin:8px 0 0}
-dt{color:var(--muted)} dd{margin:0;min-width:0;overflow-wrap:anywhere}
-.stat{border-radius:8px;border:1px solid var(--line);background:var(--surface);padding:3px 8px;font-size:13px}
+.stat{border-radius:8px;border:1px solid var(--line);background:var(--bg);padding:3px 8px;font-size:13px}
 .stat[data-s="interested"]{background:var(--accent-soft)} .stat[data-s="applied"],.stat[data-s="replied"],.stat[data-s="viewing"]{background:var(--ok-soft)} .stat[data-s="rejected"],.stat[data-s="dead"]{background:var(--bad-soft)}
-.more{display:flex;justify-content:center;padding:6px 0}
+.more-btn{display:flex;justify-content:center;padding:6px 0}
 .empty{color:var(--muted);padding:28px 0;text-align:center}
-@media (max-width:760px){.panel{position:static}}
-@media (max-width:520px){.card{grid-template-columns:56px minmax(0,1fr) auto}.thumb{width:56px;height:56px}.pp{font-size:19px}}
+@media (max-width:520px){.card{grid-template-columns:60px minmax(0,1fr) auto}.thumb{width:60px;height:60px}.pp{font-size:19px}.label{min-width:100%}}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:background .12s,color .12s}}
 </style>
 </head>
@@ -90,34 +108,39 @@ dt{color:var(--muted)} dd{margin:0;min-width:0;overflow-wrap:anywhere}
     <p class="sub" id="sub">Loading listings…</p>
   </header>
 
-  <section class="panel" aria-label="Filters">
-    <div class="row"><div class="chips" id="cities" role="group" aria-label="City"></div></div>
+  <section class="filters" aria-label="Filters">
+    <div class="row"><span class="label">City</span><div class="chips" id="cities" role="group" aria-label="City"></div></div>
     <div class="row">
       <label class="field">Max per person <input type="range" id="max" min="300" max="2500" step="25" value="900"><output id="maxo">€900</output></label>
       <input type="search" id="q" placeholder="Search street or city" aria-label="Search street or city">
     </div>
-    <div class="row">
-      <div class="chips" id="kinds" role="group" aria-label="Type"></div>
-      <div class="chips" id="regs" role="group" aria-label="Registration"></div>
-      <div class="chips" id="dist" role="group" aria-label="Distilled"></div>
-      <div class="chips" id="cheap" role="group" aria-label="Very cheap listings"></div>
-      <div class="chips" id="stat" role="group" aria-label="My status"></div>
+    <div class="subs">
+      <div class="row"><span class="label">Type</span><div class="chips" id="kinds" role="group" aria-label="Type"></div></div>
+      <div class="row"><span class="label">Registration</span><div class="chips" id="regs" role="group" aria-label="Registration"></div></div>
+      <div class="row"><span class="label">AI read</span><div class="chips" id="dist" role="group" aria-label="Distilled"></div></div>
+      <div class="row"><span class="label">Prices</span><div class="chips" id="cheap" role="group" aria-label="Very cheap listings"></div></div>
+      <div class="row wide"><span class="label">My status</span><div class="chips" id="stat" role="group" aria-label="My status"></div></div>
     </div>
-    <div class="chips" id="tagchips" role="group" aria-label="Features"></div>
-    <div class="bar">
-      <span class="count" id="count"></span>
-      <div class="row">
-        <select id="sort" aria-label="Sort">
-          <option value="per_person.asc.nullslast">Cheapest per person</option>
-          <option value="first_seen_at.desc">Newest first</option>
-          <option value="size_m2.desc.nullslast">Biggest first</option>
-          <option value="available_from.asc.nullslast">Available soonest</option>
-        </select>
-        <button class="btn" id="distill" type="button" disabled>Distill 25</button>
-      </div>
-    </div>
-    <div class="msg" id="msg" role="status"></div>
+    <details class="tagbox" open>
+      <summary>Rules, language and features <small id="tagsel"></small></summary>
+      <p class="hint">Tap a tag once to require it, twice to hide listings that have it, a third time to clear. Counts are listings in the database.</p>
+      <div class="groups" id="taggroups"></div>
+    </details>
   </section>
+
+  <div class="bar">
+    <span class="count" id="count"></span>
+    <div class="row">
+      <select id="sort" aria-label="Sort">
+        <option value="per_person.asc.nullslast">Cheapest per person</option>
+        <option value="first_seen_at.desc">Newest first</option>
+        <option value="size_m2.desc.nullslast">Biggest first</option>
+        <option value="available_from.asc.nullslast">Available soonest</option>
+      </select>
+      <button class="btn" id="distill" type="button" disabled title="Needs the passcode">Distill 25</button>
+    </div>
+  </div>
+  <div class="msg" id="msg" role="status"></div>
 
   <section class="lock" id="lock" aria-label="Passcode">
     <span>Passcode for Distill and statuses:</span>
@@ -126,7 +149,7 @@ dt{color:var(--muted)} dd{margin:0;min-width:0;overflow-wrap:anywhere}
   </section>
 
   <div class="list" id="list"></div>
-  <div class="more"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
+  <div class="more-btn"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
 </div>
 
 <script>
@@ -137,9 +160,31 @@ const PAGE = 30;
 const STATUSES = ["new","interested","applied","replied","viewing","rejected","dead"];
 const CITIES = ["Rotterdam","Amsterdam","Den Haag","Utrecht","Delft","Nijmegen"];
 
+// ---- Tag groups: how tags are sorted on the filter panel and on each card ----
+const GROUPS = [
+  { id: "lang",  label: "Language",     tags: ["dutch-only","dutch-preferred","english-ok","internationals-welcome","ad-in-dutch"] },
+  { id: "reg",   label: "Registration", tags: ["registration-ok","no-registration"] },
+  { id: "who",   label: "Who can rent", tags: ["women-only","men-only","students-only","no-students","no-couples","working-professionals","expat-friendly"] },
+  { id: "stay",  label: "Stay",         tags: ["short-term","fixed-end-date","open-ended","sublet"] },
+  { id: "cost",  label: "Costs",        tags: ["bills-included","bills-extra","high-deposit"] },
+  { id: "house", label: "House",        tags: ["furnished","live-in-landlord","no-pets","no-smoking","quiet"] },
+  { id: "warn",  label: "Watch out",    tags: ["offsite-contact","scam-risk"] },
+];
+const OTHER = { id: "other", label: "Features and more" };
+const GROUP_OF = {}; GROUPS.forEach((g, i) => g.tags.forEach((t) => (GROUP_OF[t] = i)));
+const TONE = {
+  good: ["registration-ok","english-ok","internationals-welcome","bills-included","furnished","open-ended","expat-friendly","dutch-preferred"],
+  bad:  ["no-registration","dutch-only","offsite-contact","scam-risk","high-deposit"],
+  warn: ["women-only","men-only","students-only","no-students","no-couples","sublet","short-term","live-in-landlord","working-professionals"],
+};
+const toneOf = (t) => TONE.good.includes(t) ? "good" : TONE.bad.includes(t) ? "bad" : TONE.warn.includes(t) ? "warn" : "";
+const SPECIAL = { "english-ok": "English OK", "ad-in-dutch": "Ad in Dutch", "registration-ok": "Registration OK", "no-registration": "No registration", "dutch-only": "Dutch only", "dutch-preferred": "Dutch preferred" };
+const label = (t) => SPECIAL[t] || (t.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()));
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const eur = (n) => "€" + Number(n).toLocaleString("en-GB");
+const cap = (s) => String(s ?? "").replace(/^./, (c) => c.toUpperCase());
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
 
 const S = Object.assign({
@@ -148,10 +193,9 @@ const S = Object.assign({
   sort: "per_person.asc.nullslast",
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
 let pass = store.get("kn_pass") || "";
-let statuses = {};   // id -> {status, note}
+let statuses = {};
 let offset = 0, total = 0, loaded = [];
 let tagCounts = [];
-
 function persist(){ store.set("kn_state", JSON.stringify(S)); }
 
 // ---- Supabase calls ----
@@ -194,78 +238,101 @@ function filters(){
 const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at";
 function qs(extra){ return [...filters(), `order=${S.sort}`, ...extra].join("&"); }
 
-// ---- Rendering ----
+// ---- Cards ----
 const day = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
-function regPill(r){
-  if (r === "yes") return '<span class="tag ok">Registration OK</span>';
-  if (r === "no") return '<span class="tag bad">No registration</span>';
-  return '<span class="tag">Registration unknown</span>';
+function badgeList(r){
+  const all = [...new Set([...(r.tags || []), ...(r.distill_tags || [])])];
+  if (r.reg === "yes" && !all.includes("registration-ok")) all.push("registration-ok");
+  if (r.reg === "no" && !all.includes("no-registration")) all.push("no-registration");
+  const rank = (t) => (t in GROUP_OF ? GROUP_OF[t] : 99);
+  const hide = ["no-pets", "no-smoking"];
+  return all.filter((t) => !hide.includes(t)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).slice(0, 14);
+}
+function list(title, arr){
+  arr = (arr || []).filter(Boolean);
+  return arr.length ? `<div><h4>${title}</h4><ul>${arr.map((x) => `<li>${esc(cap(x))}</li>`).join("")}</ul></div>` : "";
+}
+function buckets(r){
+  const d = r.distilled;
+  if (!d) return `<div class="nudge">Not read by AI yet. Distill sorts the ad into requirements, preferences, house rules, features and notes.</div>`;
+  const lang = d.language || {};
+  const langLine = [lang.dutch === "required" ? "Dutch required" : lang.dutch === "preferred" ? "Dutch preferred" : lang.dutch === "not-needed" ? "Dutch not needed" : "", lang.english_ok === true ? "English OK" : "", ...(lang.other || [])].filter(Boolean);
+  const who = d.who_its_for || {};
+  const reqs = [...(d.requirements || [])];
+  const stay = d.stay || {};
+  const stayLine = [stay.min_months ? `Minimum ${stay.min_months} months` : "", stay.max_months ? `Maximum ${stay.max_months} months` : "", stay.fixed_end_date ? `Ends ${stay.fixed_end_date}` : ""].filter(Boolean);
+  const costs = d.costs || {};
+  const costLine = [costs.bills && costs.bills !== "unclear" ? `Bills ${costs.bills}` : "", costs.deposit_note, ...(costs.other_fees || [])].filter(Boolean);
+  return `<div class="cols">
+    ${list("Language", langLine)}${list("Requirements", reqs)}${list("Preferences", d.preferences)}${list("House rules", d.house_rules)}
+    ${list("Stay and costs", [...stayLine, ...costLine])}${list("Features", d.features)}${list("Notes", d.notes)}
+  </div>${d.registration_evidence ? `<div class="nudge">Registration: “${esc(d.registration_evidence)}”</div>` : ""}`;
 }
 function card(r){
   const st = statuses[r.id]?.status || "new";
   const d = r.distilled;
   const avail = r.available_from ? (r.available_from <= new Date().toISOString().slice(0,10) ? "Available now" : "From " + day(r.available_from)) + (r.available_until ? " until " + day(r.available_until) : "") : "";
-  const warn = ["no-registration","students-only","women-only","men-only","dutch-only","sublet","high-deposit","offsite-contact","short-term"];
-  const tags = [...new Set([...(r.tags||[]), ...(r.distill_tags||[])])].filter((t) => !["no-pets","no-smoking","open-ended","fixed-end-date","registration-ok","no-registration","bills-included","bills-extra"].includes(t)).slice(0, 9);
   const flags = (d?.red_flags || []).slice(0, 3);
-  const det = d ? `<details><summary>What the ad says</summary><dl>
-      ${d.registration_evidence ? `<dt>Registration</dt><dd>“${esc(d.registration_evidence)}”</dd>` : ""}
-      <dt>For</dt><dd>${esc([d.who_its_for?.gender && d.who_its_for.gender !== "unclear" ? d.who_its_for.gender : "", d.who_its_for?.students_only ? "students only" : "", d.who_its_for?.internationals_ok === true ? "internationals welcome" : "", d.who_its_for?.dutch_required ? "Dutch required" : "", d.who_its_for?.couples_ok === false ? "no couples" : ""].filter(Boolean).join(", ") || "not stated")}</dd>
-      <dt>Stay</dt><dd>${esc([d.stay?.min_months ? d.stay.min_months + "+ months" : "", d.stay?.max_months ? "max " + d.stay.max_months + " months" : "", d.stay?.fixed_end_date ? "ends " + d.stay.fixed_end_date : ""].filter(Boolean).join(", ") || "not stated")}</dd>
-      <dt>Costs</dt><dd>${esc([d.costs?.bills && d.costs.bills !== "unclear" ? "bills " + d.costs.bills : "", d.costs?.deposit_note || "", ...(d.costs?.other_fees || [])].filter(Boolean).join(" · ") || "not stated")}</dd>
-      <dt>House</dt><dd>${esc([d.house?.furnished && d.house.furnished !== "unclear" ? d.house.furnished + " furnished" : "", d.house?.shared_with || "", d.house?.live_in_landlord ? "landlord lives in" : ""].filter(Boolean).join(" · ") || "not stated")}</dd>
-      ${(d.features||[]).length ? `<dt>Features</dt><dd>${esc(d.features.join(", "))}</dd>` : ""}
-      <dt>Read by</dt><dd>${esc(r.distill_model || "")}</dd></dl></details>` : "";
   return `<article class="card" data-id="${r.id}">
     <div class="thumb" style="${r.photos?.[0] ? `background-image:url('${esc(r.photos[0])}')` : ""}" role="img" aria-label="Photo"></div>
     <div class="where"><div class="street">${esc(r.street)}</div>
-      <div class="meta"><span>${esc(r.city)}</span><span>${esc(r.kind)}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}</div></div>
+      <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}</div></div>
     <div class="price"><div class="pp">${r.per_person != null ? eur(r.per_person) : eur(r.price)}<small> ${r.per_person != null ? "/pp" : "total"}</small></div>
-      <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${r.people}` : r.people == null ? "people unknown" : "per month"}</div></div>
-    <div class="tags">${r.distilled_at ? `<span class="dist" title="Read by AI on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="undist">Not distilled</span>'}
-      ${regPill(r.reg)}
-      ${r.utilities_incl === true ? '<span class="tag ok">Bills included</span>' : r.utilities_incl === false ? '<span class="tag">Bills extra</span>' : ""}
-      ${tags.map((t) => `<span class="tag ${warn.includes(t) ? "warn" : ""}">${esc(t)}</span>`).join("")}</div>
+      <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${r.people}` : r.people == null ? "People unknown" : "Per month"}</div></div>
+    <div class="badges">
+      ${r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
+      ${r.reg === "unknown" ? '<span class="badge">Registration unknown</span>' : ""}
+      ${badgeList(r).map((t) => `<span class="badge ${toneOf(t)} ${GROUP_OF[t] === 0 ? "lang" : ""}">${esc(label(t))}</span>`).join("")}
+    </div>
     ${d?.summary ? `<div class="summary">${esc(d.summary)}</div>` : ""}
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
-    ${det}
-    <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+    ${buckets(r)}
+    <details class="more" data-full="${r.id}"><summary>Full ad text</summary><div class="full">Loading…</div></details>
+    <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${cap(s)}</option>`).join("")}</select></label>
       <a href="${esc(r.url)}" target="_blank" rel="noopener">Open on Kamernet ↗</a></div>
   </article>`;
 }
 function renderList(){
-  const list = $("list");
-  list.innerHTML = loaded.length ? loaded.map(card).join("") : '<div class="empty">Nothing matches these filters.</div>';
+  $("list").innerHTML = loaded.length ? loaded.map(card).join("") : '<div class="empty">Nothing matches these filters.</div>';
   const nd = loaded.filter((r) => r.distilled_at).length;
   $("count").textContent = `${total.toLocaleString("en-GB")} listing${total === 1 ? "" : "s"} · showing ${loaded.length} (${nd} distilled)`;
   $("more").hidden = loaded.length >= total;
 }
+
+// ---- Filter panel ----
 function chips(el, opts, get, set, multi){
-  el.innerHTML = opts.map(([v, label]) => `<button class="chip" type="button" data-v="${esc(v)}" aria-pressed="${multi ? S[get].includes(v) : S[get] === v}">${esc(label)}</button>`).join("");
+  el.innerHTML = opts.map(([v, text]) => `<button class="chip" type="button" data-v="${esc(v)}" aria-pressed="${multi ? S[get].includes(v) : S[get] === v}">${esc(text)}</button>`).join("");
   el.onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; set(b.dataset.v); persist(); renderPanel(); load(true); };
 }
 function renderTags(){
-  const top = tagCounts.filter((t) => t.n >= 2 && !["no-pets","no-smoking","open-ended","fixed-end-date","bills-included","bills-extra","registration-ok","no-registration","short-term"].includes(t.tag)).sort((a, b) => b.n - a.n).slice(0, 24);
-  const active = Object.keys(S.tags).filter((t) => !top.some((x) => x.tag === t));
-  const all = [...top.map((t) => [t.tag, t.n]), ...active.map((t) => [t, null])];
-  $("tagchips").innerHTML = all.map(([t, n]) => `<button class="chip ${S.tags[t] || ""}" type="button" data-t="${esc(t)}" title="Tap: must have. Tap again: hide these. Again: off.">${esc(t)}${n != null ? `<small>${n}</small>` : ""}</button>`).join("");
+  const n = Object.fromEntries(tagCounts.map((t) => [t.tag, t.n]));
+  const chip = (t) => `<button class="chip ${S.tags[t] || ""}" type="button" data-t="${esc(t)}">${esc(label(t))}${n[t] != null ? `<small>${n[t]}</small>` : ""}</button>`;
+  const rows = GROUPS.map((g) => {
+    const tags = g.tags.filter((t) => n[t] > 0 || S.tags[t]);
+    return tags.length ? `<div class="row"><span class="label">${g.label}</span><div class="chips">${tags.map(chip).join("")}</div></div>` : "";
+  });
+  const extra = tagCounts.filter((t) => !(t.tag in GROUP_OF) && t.n >= 2).sort((a, b) => b.n - a.n).map((t) => t.tag).slice(0, 24);
+  for (const t of Object.keys(S.tags)) if (!(t in GROUP_OF) && !extra.includes(t)) extra.push(t);
+  if (extra.length) rows.push(`<div class="row"><span class="label">${OTHER.label}</span><div class="chips">${extra.map(chip).join("")}</div></div>`);
+  $("taggroups").innerHTML = rows.join("");
+  const sel = Object.keys(S.tags).length;
+  $("tagsel").textContent = sel ? `${sel} selected` : "";
 }
 function renderPanel(){
   chips($("cities"), [["__all", "All cities"], ...CITIES.map((c) => [c, c])], "cities", (v) => { S.cities = v === "__all" ? [] : S.cities.includes(v) ? S.cities.filter((x) => x !== v) : [...S.cities, v]; }, true);
-  if (!S.cities.length) $("cities").querySelector('[data-v="__all"]').setAttribute("aria-pressed", "true"); else $("cities").querySelector('[data-v="__all"]').setAttribute("aria-pressed", "false");
+  $("cities").querySelector('[data-v="__all"]').setAttribute("aria-pressed", S.cities.length ? "false" : "true");
   chips($("kinds"), [["room","Rooms"],["studio","Studios"],["apartment","Apartments"]], "kinds", (v) => { S.kinds = S.kinds.includes(v) ? S.kinds.filter((x) => x !== v) : [...S.kinds, v]; }, true);
-  chips($("regs"), [["any","Any registration"],["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "reg", (v) => { S.reg = v; }, false);
-  chips($("dist"), [["any","Distilled or not"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
+  chips($("regs"), [["any","Any"],["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "reg", (v) => { S.reg = v; }, false);
+  chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
-  chips($("stat"), [["any","Any status"],...STATUSES.map((s) => [s, s])], "stat", (v) => { S.stat = v; }, false);
-  $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "no limit" : eur(S.max);
+  chips($("stat"), [["any","Any"],...STATUSES.map((s) => [s, cap(s)])], "stat", (v) => { S.stat = v; }, false);
+  $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
   $("distill").disabled = !pass;
-  $("lock").hidden = !!pass && false;
-  $("passbtn").textContent = pass ? "Change" : "Unlock";
+  $("passbtn").textContent = pass ? "Lock" : "Unlock";
+  $("pass").placeholder = pass ? "Passcode saved on this device" : "passcode";
   $("pass").value = "";
-  $("pass").placeholder = pass ? "passcode saved on this device" : "passcode";
 }
 
 // ---- Loading ----
@@ -283,9 +350,7 @@ async function load(reset){
     renderList();
   } catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't load listings: " + e.message; }
 }
-async function loadTags(){
-  try { tagCounts = await (await rest("tag_counts?select=tag,n&order=n.desc&limit=80")).json(); renderTags(); } catch {}
-}
+async function loadTags(){ try { tagCounts = await (await rest("tag_counts?select=tag,n&order=n.desc&limit=200")).json(); renderTags(); } catch {} }
 async function loadStatuses(){
   if (!pass) return;
   try { const b = await fn("status"); statuses = Object.fromEntries(b.statuses.map((s) => [String(s.id), s])); }
@@ -293,32 +358,38 @@ async function loadStatuses(){
 }
 async function headline(){
   try {
-    const r = await rest("listings?select=id&gone_at=is.null&limit=1", { Prefer: "count=exact" });
-    const n = (r.headers.get("content-range") || "").split("/")[1];
-    const d = await rest("listings?select=id&gone_at=is.null&distilled_at=not.is.null&limit=1", { Prefer: "count=exact" });
-    const nd = (d.headers.get("content-range") || "").split("/")[1];
+    const n = (await rest("listings?select=id&gone_at=is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
+    const nd = (await rest("listings?select=id&gone_at=is.null&distilled_at=not.is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
     $("sub").textContent = `${Number(n).toLocaleString("en-GB")} listings saved · ${Number(nd).toLocaleString("en-GB")} distilled`;
   } catch { $("sub").textContent = "Live from Kamernet"; }
 }
 
 // ---- Events ----
-$("max").oninput = (e) => { S.max = Number(e.target.value); $("maxo").textContent = S.max >= 2500 ? "no limit" : eur(S.max); };
+$("max").oninput = (e) => { S.max = Number(e.target.value); $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max); };
 $("max").onchange = () => { persist(); load(true); };
 let qt; $("q").oninput = (e) => { S.q = e.target.value; clearTimeout(qt); qt = setTimeout(() => { persist(); load(true); }, 350); };
 $("sort").onchange = (e) => { S.sort = e.target.value; persist(); load(true); };
 $("more").onclick = () => load(false);
-$("tagchips").onclick = (e) => {
+$("taggroups").onclick = (e) => {
   const b = e.target.closest(".chip"); if (!b) return; const t = b.dataset.t;
   if (!S.tags[t]) S.tags[t] = "in"; else if (S.tags[t] === "in") S.tags[t] = "out"; else delete S.tags[t];
   persist(); renderTags(); load(true);
 };
 $("passbtn").onclick = async () => {
   const v = $("pass").value.trim();
-  if (!v && pass){ pass = ""; store.set("kn_pass", ""); statuses = {}; renderPanel(); load(true); return; }
+  if (!v && pass){ pass = ""; store.set("kn_pass", ""); statuses = {}; renderPanel(); renderList(); return; }
   if (!v) return;
   pass = v; store.set("kn_pass", v);
   await loadStatuses(); renderPanel(); renderList();
 };
+$("list").addEventListener("toggle", async (e) => {
+  const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.full || d.dataset.loaded) return;
+  d.dataset.loaded = "1";
+  try {
+    const rows = await (await rest(`listings?select=description&id=eq.${d.dataset.full}`)).json();
+    d.querySelector(".full").textContent = rows[0]?.description || "No description.";
+  } catch { d.querySelector(".full").textContent = "Couldn't load the ad text."; delete d.dataset.loaded; }
+}, true);
 $("list").onchange = async (e) => {
   const sel = e.target.closest("select.stat"); if (!sel) return;
   const id = sel.dataset.id, status = sel.value;
@@ -326,7 +397,7 @@ $("list").onchange = async (e) => {
   try {
     await fn("status", { method: "POST", body: JSON.stringify({ id: Number(id), status, note: statuses[id]?.note ?? null }) });
     if (status === "new") delete statuses[id]; else statuses[id] = { ...(statuses[id] || {}), status };
-    $("msg").className = "msg"; $("msg").textContent = `Saved: ${status}`;
+    $("msg").className = "msg"; $("msg").textContent = `Saved: ${cap(status)}`;
   } catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save status: " + err.message; }
 };
 $("distill").onclick = async () => {
