@@ -805,14 +805,15 @@ $("list").addEventListener("change", async (e) => {
 const unsent = () => drafts.filter((d) => d.send_status !== "sent");
 const readyOnes = () => drafts.filter((d) => d.send_status === "approved");
 const draftEdits = {}; // unsaved text by application id, kept when the list redraws
+const sendUrl = (d) => d.kind === "reply" && d.conv_id ? `https://kamernet.nl/en/my-messages/default/conversation/${d.conv_id}` : `https://kamernet.nl/en/react-to-listing/${d.listing_id}`;
 function draftBlock(listingId){
   const d = unsent().find((x) => x.listing_id === listingId); if (!d) return "";
   const ready = d.send_status === "approved";
   return `<div class="ditem${ready ? " ready" : ""}" data-aid="${d.id}" data-lid="${d.listing_id}">
-      <div class="dtop"><b>Draft message</b><label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
-      ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      <div class="dtop"><b>${d.kind === "reply" ? "Draft reply to the landlord" : "Draft first message"}</b><label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
+      ${[...(d.warnings || []), ...(d.notes || []).map((n) => "You decide: " + n)].length ? `<ul class="warns">${[...(d.warnings || []), ...(d.notes || []).map((n) => "You decide: " + n)].map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
       <textarea class="dtext" aria-label="Draft message">${esc(draftEdits[d.id] ?? d.draft)}</textarea>
-      <div class="trow"><button class="btn ghost dgo" type="button">Copy and open Kamernet</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
+      <div class="trow"><button class="btn ghost dgo" type="button">Copy and open ${d.kind === "reply" ? "the chat" : "Kamernet"}</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
     </div>`;
 }
 async function loadDrafts(){
@@ -853,7 +854,7 @@ $("list").addEventListener("click", async (e) => {
   const id = Number(it.dataset.aid), lid = Number(it.dataset.lid), ta = it.querySelector(".dtext"), st = it.querySelector(".dst");
   if (e.target.closest(".dgo")){
     const p = navigator.clipboard?.writeText(ta.value);   // copy and open run inside this tap, so browsers allow both
-    window.open(`https://kamernet.nl/en/react-to-listing/${lid}`, "_blank", "noopener");
+    const dd = drafts.find((x) => x.id === id); window.open(dd ? sendUrl(dd) : `https://kamernet.nl/en/react-to-listing/${lid}`, "_blank", "noopener");
     if (p) p.then(() => { st.textContent = "Copied. Paste it in Kamernet, send it, then press “I sent it”."; }).catch(() => ta.select()); else ta.select();
   } else if (e.target.closest(".ddone")){
     try {
@@ -872,8 +873,8 @@ $("dinstr").onclick = () => {
   const r = readyOnes();
   if (!r.length){ $("dinfo").textContent = "Tick “Ready to send” on at least one draft first."; return; }
   const name = (d) => { const l = loaded.find((x) => x.id === d.listing_id); return l ? `${l.street}, ${l.city}` : `listing ${d.listing_id}`; };
-  const lines = r.map((d, i) => `${i + 1}. ${name(d)} (listing ${d.listing_id}, application ${d.id})`).join("\n");
-  const txt = `Please send these ${r.length} Kamernet application${r.length === 1 ? "" : "s"} through my Chrome, one at a time, with a normal gap of 10 to 30 seconds. Use my final text exactly as saved in the Supabase table "applications" (project sldfjyrpopypzbmhvbkq, send_status = 'approved', application ids: ${r.map((d) => d.id).join(", ")}). For each one: open https://kamernet.nl/en/react-to-listing/<listing id>, paste the text, set the number of people moving in (1, or 2 if the listing allows two), send it, then mark it sent (send_status 'sent', sent_at now, listing status 'applied', and add it to the message thread). Stop at once on any error, captcha or "Service Unavailable" and tell me.\n\n${lines}`;
+  const lines = r.map((d, i) => `${i + 1}. ${d.kind === "reply" ? "REPLY" : "FIRST MESSAGE"} · ${name(d)} · open ${sendUrl(d)} (listing ${d.listing_id}, application ${d.id})`).join("\n");
+  const txt = `Please send these ${r.length} Kamernet application${r.length === 1 ? "" : "s"} through my Chrome, one at a time, with a normal gap of 10 to 30 seconds. Use my final text exactly as saved in the Supabase table "applications" (project sldfjyrpopypzbmhvbkq, send_status = 'approved', application ids: ${r.map((d) => d.id).join(", ")}). For each one: open its link below (a first message goes in the listing's reply form, a reply goes in the existing Kamernet chat), paste the text, for a first message set the number of people moving in (1, or 2 if the listing allows two), send it, then mark it sent (send_status 'sent', sent_at now, listing status 'applied', and add it to the message thread). Stop at once on any error, captcha or "Service Unavailable" and tell me.\n\n${lines}`;
   const p = navigator.clipboard?.writeText(txt);
   if (p) p.then(() => { $("dinfo").textContent = `Copied the instruction for ${r.length}. Paste it to Claude to send them.`; }).catch(() => { $("dinfo").textContent = "Couldn't copy automatically."; });
 };
@@ -915,7 +916,9 @@ $("list").addEventListener("click", async (e) => {
     if (!pass){ info.textContent = "Unlock with the passcode first."; return; }
     info.textContent = "Writing a draft…";
     try {
-      const r = await fn("replydraft", { method: "POST", body: JSON.stringify({ id }) });
+      const r = await fn("replydraft", { method: "POST", body: JSON.stringify({ id, save: true }) });
+      if (r.skipped){ info.textContent = "Nothing to answer: the last message is yours."; return; }
+      loadDrafts();
       ta.value = r.message; box.querySelector(".tdir").value = "out";
       if (r.conv_url) box.dataset.convUrl = r.conv_url;
       info.textContent = `Draft ready (nothing is sent). Edit it, press “Copy and open chat”, send it there, then “Add to thread”.${r.notes?.length ? " Note: " + r.notes.join(" · ") : ""}`;
