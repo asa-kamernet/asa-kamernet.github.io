@@ -139,7 +139,20 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .actions .apply{padding:4px 12px}
 .btn.alt{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .btn.alt[disabled]{opacity:.5}
-#queueDlg{width:min(720px,calc(100vw - 32px));max-height:92vh}
+.thumb{position:relative}
+.pick{position:absolute;top:4px;left:4px;width:20px;height:20px;accent-color:var(--accent);cursor:pointer}
+.selrow{gap:10px}
+.selall{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+.btn.small{padding:3px 10px;font-size:12.5px}
+.drafts{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px}
+.drafts>summary{cursor:pointer;font-size:15px}
+.dhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:8px 0}
+.rdy{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+#dlist{display:flex;flex-direction:column;gap:12px;margin-top:10px}
+.ditem{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.ditem.ready{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok)}
+.dtop{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between}
+.ditem textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:8px;font:inherit;line-height:1.45;resize:vertical}
 .qhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .qlist{display:flex;flex-direction:column;gap:12px}
 .qitem{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
@@ -187,7 +200,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   </section>
 
   <div class="bar">
-    <span class="count" id="count"></span>
+    <div class="row selrow"><label class="selall"><input type="checkbox" id="selall"> Select all shown</label><span class="count" id="count"></span><button class="btn ghost small" id="selmore" type="button" hidden></button></div>
     <div class="row">
       <select id="sort" aria-label="Sort">
         <option value="per_person.asc.nullslast">Cheapest per person</option>
@@ -196,10 +209,18 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
         <option value="available_from.asc.nullslast">Available soonest</option>
       </select>
       <button class="btn" id="distill" type="button" disabled>Distill</button>
+      <button class="btn" id="applysel" type="button" disabled>Apply (0)</button>
       <button class="btn alt" id="auto" type="button" disabled>Auto apply</button>
     </div>
   </div>
   <div class="msg" id="msg" role="status"></div>
+
+  <details class="drafts" id="drafts" hidden open>
+    <summary><b>Drafts</b> <span id="dcount"></span></summary>
+    <div class="dhead"><label class="rdy"><input type="checkbox" id="dready"> All ready to send</label><button class="btn" id="dinstr" type="button">Copy send instruction</button></div>
+    <small id="dinfo">Edit any message, tick “Ready to send”, then copy the instruction and paste it to Claude, or copy and send each one yourself. Nothing is sent from this page.</small>
+    <div id="dlist"></div>
+  </details>
 
   <div class="list" id="list"></div>
   <div class="more-btn"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
@@ -220,12 +241,6 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   <small>Nothing is sent from here. Paste the message into Kamernet's form and press send yourself.</small>
 </div></dialog>
 
-<dialog id="queueDlg" aria-labelledby="queueTitle"><div class="dlg">
-  <div class="qhead"><h3 id="queueTitle">Review applications</h3><button class="btn ghost" id="queueClose" type="button">Close</button></div>
-  <small id="queueInfo"></small>
-  <div class="qlist" id="queueList"></div>
-  <small>Nothing is sent from here. For each one: copy it, paste it into Kamernet's form, send it yourself, then press “I sent it”.</small>
-</div></dialog>
 
 <script>
 // ---- Settings (public values only; the passcode is typed in the browser and never stored in this file) ----
@@ -381,7 +396,7 @@ function card(r){
   const avail = r.available_from ? (r.available_from <= new Date().toISOString().slice(0,10) ? "Available now" : "From " + day(r.available_from)) + (r.available_until ? " until " + day(r.available_until) : "") : "";
   const flags = (d?.red_flags || []).slice(0, 3);
   return `<article class="card${r.distilled_at ? " gold" : ""}" data-id="${r.id}">
-    <div class="thumb" style="${r.photos?.[0] ? `background-image:url('${esc(r.photos[0])}')` : ""}" role="img" aria-label="Photo"></div>
+    <div class="thumb" style="${r.photos?.[0] ? `background-image:url('${esc(r.photos[0])}')` : ""}" role="img" aria-label="Photo"><input type="checkbox" class="pick" data-id="${r.id}" aria-label="Select ${esc(r.street)}" ${picked.has(r.id) ? "checked" : ""}></div>
     <div class="where"><div class="street">${esc(r.street)}</div>
       <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}</div></div>
     <div class="price"><div class="pp">${ppOf(r) != null ? eur(ppOf(r)) : eur(r.price)}<small> ${ppOf(r) != null ? "/pp" : "total"}</small></div>
@@ -412,7 +427,7 @@ function card(r){
     </div></details>
   </article>`;
 }
-function renderList(){
+var renderList = function(){
   if (S.sort.startsWith("per_person")){ const k = (r) => ppOf(r) ?? 1e9, dir = S.sort.includes(".desc") ? -1 : 1; loaded.sort((a, b) => dir * (k(a) - k(b))); }
   $("list").innerHTML = loaded.length ? loaded.map(card).join("") : '<div class="empty">Nothing matches these filters.</div>';
   const nd = loaded.filter((r) => r.distilled_at).length;
@@ -523,7 +538,7 @@ async function boot(){
   await loadStatuses();
   await loadThreads();
   renderPanel();
-  await Promise.all([load(true), headline(), loadTags()]);
+  await Promise.all([load(true), headline(), loadTags(), loadDrafts()]);
 }
 function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; boot().catch(() => {}); }
 $("passbtn").onclick = async () => {
@@ -574,14 +589,61 @@ $("applyDone").onclick = async () => {
 };
 $("applyClose").onclick = () => $("applyDlg").close();
 
-// ---- Auto apply: writes drafts for the distilled listings in this view that you can realistically apply to. It sends NOTHING. ----
-let eligible = [], queueDrafts = [];
+// ---- Picking listings, drafting, and the Drafts section. NOTHING here sends a message to a landlord. ----
+const picked = new Set();
+let eligible = [], drafts = [];
 const BLOCKING = "students-only,women-only,dutch-only,offsite-contact,scam-risk";
+const SKIP_STATUS = ["applied", "replied", "viewing", "rejected", "dead"];
+const MAX_DRAFT_RUN = 60; // drafts per press (about 0.1 cent each)
+function syncPicks(){
+  document.querySelectorAll("#list .pick").forEach((c) => { c.checked = picked.has(Number(c.dataset.id)); });
+  const shown = loaded.map((r) => r.id), n = shown.filter((id) => picked.has(id)).length;
+  $("selall").checked = shown.length > 0 && n === shown.length;
+  $("selall").indeterminate = n > 0 && n < shown.length;
+  const b = $("applysel"); b.textContent = `Apply (${picked.size})`; b.disabled = picked.size === 0 || !pass;
+  b.title = !pass ? "Enter the passcode first" : picked.size ? `Write drafts for ${Math.min(picked.size, MAX_DRAFT_RUN)} listing${picked.size === 1 ? "" : "s"}. Nothing is sent.` : "Tick some listings first";
+  const more = $("selmore"), all = shown.length > 0 && n === shown.length && total > shown.length;
+  more.hidden = !all; if (all) more.textContent = `Select all ${Math.min(total, 300).toLocaleString("en-GB")} matching`;
+}
+$("list").addEventListener("change", (e) => {
+  const c = e.target.closest(".pick"); if (!c) return;
+  const id = Number(c.dataset.id); c.checked ? picked.add(id) : picked.delete(id); syncPicks();
+});
+$("selall").onchange = (e) => { for (const r of loaded) e.target.checked ? picked.add(r.id) : picked.delete(r.id); syncPicks(); };
+$("selmore").onclick = async () => {
+  try { (await (await rest(`listings?select=id&${qs(["limit=300"])}`)).json()).forEach((r) => picked.add(r.id)); syncPicks(); }
+  catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't select them all: " + e.message; }
+};
+const origRender = renderList;
+renderList = function(){ origRender(); syncPicks(); };
+
+async function draftFor(ids){
+  if (!pass){ $("msg").className = "msg err"; $("msg").textContent = "Enter the passcode first."; return; }
+  const skipped = ids.filter((id) => SKIP_STATUS.includes(statuses[id]?.status));
+  const todo = ids.filter((id) => !skipped.includes(id)).slice(0, MAX_DRAFT_RUN);
+  if (!todo.length){ $("msg").className = "msg"; $("msg").textContent = `Nothing to draft: ${skipped.length} selected listing${skipped.length === 1 ? " is" : "s are"} already applied to or closed.`; return; }
+  $("applysel").disabled = true; $("auto").disabled = true; $("msg").className = "msg";
+  let ok = 0, bad = 0, cost = 0, lastErr = "";
+  for (let i = 0; i < todo.length; i += 10){
+    $("msg").textContent = `Writing drafts ${i + 1} to ${Math.min(i + 10, todo.length)} of ${todo.length}…`;
+    try {
+      const r = await fn("apply", { method: "POST", body: JSON.stringify({ ids: todo.slice(i, i + 10) }) });
+      for (const d of r.drafts || []) { if (d.error){ bad++; lastErr = d.error; } else ok++; }
+      cost += r.total_cost_usd || 0;
+    } catch (e) { bad += Math.min(10, todo.length - i); lastErr = e.message; }
+  }
+  picked.clear(); await loadDrafts(); syncPicks(); setAutoBtn();
+  $("msg").className = bad ? "msg err" : "msg";
+  $("msg").textContent = `${ok} draft${ok === 1 ? "" : "s"} written${bad ? `, ${bad} failed (${lastErr})` : ""}${skipped.length ? `, ${skipped.length} skipped (already applied or closed)` : ""} · cost $${cost.toFixed(4)}. Review them in the Drafts section below the filters.`;
+  if (ok) $("drafts").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+$("applysel").onclick = () => draftFor([...picked]);
+
 function setAutoBtn(){
   const n = Math.min(10, eligible.length), b = $("auto");
   b.textContent = `Auto apply ${n}`;
-  b.disabled = n === 0;
-  b.title = n === 0 ? "No listing in this view is distilled, open to you and not applied to yet (students-only, women-only, Dutch-only, risky and 3-person ads are left out)" : `Write ${n} application draft${n === 1 ? "" : "s"} for you to review. Nothing is sent.`;
+  b.disabled = n === 0 || !pass;
+  b.title = n === 0 ? "No listing in this view is distilled, open to you and not applied to yet (students-only, women-only, Dutch-only, risky and 3-person ads are left out)" : `Tick ${n} suitable listings and write drafts for them. Nothing is sent.`;
 }
 async function refreshEligible(){
   try {
@@ -590,49 +652,82 @@ async function refreshEligible(){
   } catch { eligible = []; }
   setAutoBtn();
 }
-function renderQueue(drafts, cost){
-  queueDrafts = drafts;
-  $("queueInfo").textContent = `${drafts.filter((d) => !d.error).length} drafts ready · cost $${cost ?? 0}. Check each one before you send it.`;
-  $("queueList").innerHTML = drafts.map((d, i) => {
-    if (d.error) return `<div class="qitem"><h4>${esc(d.street || d.id)}</h4><small>${esc(d.error)}</small></div>`;
-    const extra = [...(d.unanswered || []).map((x) => "The ad also asks: " + x), ...(d.notes || [])].join(" · ");
-    return `<section class="qitem" data-i="${i}">
-      <h4>${esc(d.street)}, ${esc(d.city)} · ${d.per_person != null ? eur(d.per_person) + " /pp" : eur(d.price)}</h4>
+$("auto").onclick = () => { const ids = eligible.slice(0, 10); if (!ids.length) return; ids.forEach((id) => picked.add(id)); syncPicks(); draftFor(ids); };
+
+// ---- Drafts section ----
+const unsent = () => drafts.filter((d) => d.send_status !== "sent");
+const readyOnes = () => drafts.filter((d) => d.send_status === "approved");
+async function loadDrafts(){
+  if (!pass) return;
+  try { drafts = (await fn("apply?queue=1")).items || []; } catch { return; }
+  renderDrafts();
+}
+function renderDrafts(){
+  const open = unsent(), box = $("drafts");
+  box.hidden = open.length === 0;
+  $("dcount").textContent = `(${open.length}) · ${readyOnes().length} ready to send`;
+  $("dready").checked = open.length > 0 && readyOnes().length === open.length;
+  const keep = {}; document.querySelectorAll("#dlist .dtext").forEach((t) => { keep[t.closest(".ditem").dataset.aid] = t.value; });
+  $("dlist").innerHTML = open.map((d) => {
+    const l = d.listing || {};
+    const pp = l.per_person != null ? eur(l.per_person) + " /pp" : l.price != null ? eur(l.price) : "";
+    const ready = d.send_status === "approved";
+    return `<article class="ditem${ready ? " ready" : ""}" data-aid="${d.id}" data-lid="${d.listing_id}">
+      <div class="dtop"><b>${esc(l.street || d.listing_id)}${l.city ? ", " + esc(l.city) : ""} · ${esc(pp)}</b>
+        <label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
       ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
-      <textarea aria-label="Draft for ${esc(d.street)}">${esc(d.message)}</textarea>
-      ${extra ? `<small>${esc(extra)}</small>` : ""}
-      <div class="row-btn"><button class="btn q-go" type="button">Copy and open Kamernet</button><button class="btn ghost q-done" type="button">I sent it</button><button class="btn ghost q-skip" type="button">Skip</button></div>
-    </section>`;
+      <textarea class="dtext" aria-label="Draft for ${esc(l.street || "")}">${esc(keep[d.id] ?? d.draft)}</textarea>
+      <div class="trow"><button class="btn ghost dgo" type="button">Copy and open Kamernet</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
+    </article>`;
   }).join("");
 }
-$("auto").onclick = async () => {
-  const ids = eligible.slice(0, 10); if (!ids.length) return;
-  $("queueList").innerHTML = "";
-  $("queueInfo").textContent = `Writing ${ids.length} drafts… about ${Math.max(10, ids.length * 3)} seconds.`;
-  $("queueDlg").showModal();
-  try { const r = await fn("apply", { method: "POST", body: JSON.stringify({ ids }) }); renderQueue(r.drafts || [], r.total_cost_usd); }
-  catch (e) { $("queueInfo").textContent = "Couldn't write the drafts: " + e.message; }
-};
-$("queueList").addEventListener("click", async (e) => {
-  const sec = e.target.closest(".qitem[data-i]"); if (!sec) return;
-  const d = queueDrafts[Number(sec.dataset.i)], ta = sec.querySelector("textarea");
-  if (e.target.closest(".q-go")){
-    const p = navigator.clipboard?.writeText(ta.value);          // copy and open run inside this tap, so browsers allow both
-    window.open(d.form_url, "_blank", "noopener");
-    if (p) p.then(() => { $("queueInfo").textContent = `Copied the message for ${d.street}. Paste it in Kamernet, send it, then press “I sent it”.`; }).catch(() => ta.select());
-    else ta.select();
-  } else if (e.target.closest(".q-done")){
-    try {
-      await fn("status", { method: "POST", body: JSON.stringify({ id: Number(d.id), status: "applied", note: `Applied ${new Date().toISOString().slice(0, 10)} via Auto apply (reviewed by me)` }) });
-      if (d.application_id) await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: d.application_id }) });
-      statuses[d.id] = { ...(statuses[d.id] || {}), status: "applied" };
-      sec.remove(); refreshEligible(); renderList();
-      $("queueInfo").textContent = `Marked ${d.street} as applied.`;
-    } catch (err) { $("queueInfo").textContent = "Couldn't save: " + err.message; }
-  } else if (e.target.closest(".q-skip")){ sec.remove(); }
-  if (!$("queueList").querySelector(".qitem[data-i]")) $("queueDlg").close();
+async function setReady(ids, ready){
+  try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "ready", application_ids: ids, ready }) }); }
+  catch (e) { $("dinfo").textContent = "Couldn't save: " + e.message; }
+  await loadDrafts();
+}
+$("dready").onchange = (e) => setReady(unsent().map((d) => d.id), e.target.checked);
+$("dlist").addEventListener("change", (e) => {
+  const c = e.target.closest(".dready1"); if (!c) return;
+  setReady([Number(c.closest(".ditem").dataset.aid)], c.checked);
 });
-$("queueClose").onclick = () => $("queueDlg").close();
+const saveTimers = {};
+$("dlist").addEventListener("input", (e) => {
+  const t = e.target.closest(".dtext"); if (!t) return;
+  const it = t.closest(".ditem"), id = Number(it.dataset.aid), st = it.querySelector(".dst");
+  st.textContent = "Editing…"; clearTimeout(saveTimers[id]);
+  saveTimers[id] = setTimeout(async () => {
+    try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: t.value }) }); st.textContent = "Saved"; const d = drafts.find((x) => x.id === id); if (d) d.draft = t.value; }
+    catch (err) { st.textContent = "Couldn't save: " + err.message; }
+  }, 700);
+});
+$("dlist").addEventListener("click", async (e) => {
+  const it = e.target.closest(".ditem"); if (!it) return;
+  const id = Number(it.dataset.aid), lid = Number(it.dataset.lid), ta = it.querySelector(".dtext"), st = it.querySelector(".dst");
+  if (e.target.closest(".dgo")){
+    const p = navigator.clipboard?.writeText(ta.value);   // copy and open run inside this tap, so browsers allow both
+    window.open(`https://kamernet.nl/en/react-to-listing/${lid}`, "_blank", "noopener");
+    if (p) p.then(() => { st.textContent = "Copied. Paste it in Kamernet, send it, then press “I sent it”."; }).catch(() => ta.select()); else ta.select();
+  } else if (e.target.closest(".ddone")){
+    try {
+      await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: ta.value }) });
+      await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: id }) });
+      statuses[lid] = { ...(statuses[lid] || {}), status: statuses[lid]?.status && statuses[lid].status !== "new" && statuses[lid].status !== "interested" ? statuses[lid].status : "applied" };
+      await Promise.all([loadDrafts(), loadThreads()]); refreshEligible(); renderList();
+    } catch (err) { st.textContent = "Couldn't save: " + err.message; }
+  } else if (e.target.closest(".ddel")){
+    try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "discard", application_id: id }) }); await loadDrafts(); }
+    catch (err) { st.textContent = "Couldn't discard: " + err.message; }
+  }
+});
+$("dinstr").onclick = () => {
+  const r = readyOnes();
+  if (!r.length){ $("dinfo").textContent = "Tick “Ready to send” on at least one draft first."; return; }
+  const lines = r.map((d, i) => `${i + 1}. ${d.listing?.street || "?"}${d.listing?.city ? ", " + d.listing.city : ""} (listing ${d.listing_id}, application ${d.id})`).join("\n");
+  const txt = `Please send these ${r.length} Kamernet application${r.length === 1 ? "" : "s"} through my Chrome, one at a time, with a normal gap of 10 to 30 seconds. Use my final text exactly as saved in the Supabase table "applications" (project sldfjyrpopypzbmhvbkq, send_status = 'approved', application ids: ${r.map((d) => d.id).join(", ")}). For each one: open https://kamernet.nl/en/react-to-listing/<listing id>, paste the text, set the number of people moving in (1, or 2 if the listing allows two), send it, then mark it sent (send_status 'sent', sent_at now, listing status 'applied', and add it to the message thread). Stop at once on any error, captcha or "Service Unavailable" and tell me.\n\n${lines}`;
+  const p = navigator.clipboard?.writeText(txt);
+  if (p) p.then(() => { $("dinfo").textContent = `Copied the instruction for ${r.length}. Paste it to Claude to send them.`; }).catch(() => { $("dinfo").textContent = "Couldn't copy automatically."; });
+};
 $("list").addEventListener("toggle", async (e) => {
   const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.full || d.dataset.loaded) return;
   d.dataset.loaded = "1";
