@@ -106,6 +106,17 @@ details.open>summary{cursor:pointer;list-style:none;display:flex;align-items:cen
 details.open>summary::-webkit-details-marker{display:none}
 details.open .cc,details.open[open] .oc{display:none} details.open[open] .cc{display:inline}
 details.open>.inner{display:grid;gap:10px;margin-top:8px}
+.lastmsg{grid-column:1 / -1;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.nr{background:var(--warn-soft);color:var(--warn);font-weight:600;border-radius:7px;padding:1px 8px;font-size:12px}
+.nr[hidden]{display:none}
+.thread{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.msgs{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.bub{max-width:92%;padding:7px 10px;border-radius:10px;font-size:13.5px;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg)}
+.bub.out{align-self:flex-end;background:var(--accent-soft)}
+.bub .bm{font-size:11.5px;color:var(--muted);margin-bottom:2px}
+.thread textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:8px;font:inherit;resize:vertical}
+.trow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.trow select{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:4px 6px}
 details.more{grid-column:1 / -1;font-size:13px}
 details.more>summary{cursor:pointer;color:var(--muted)}
 .full{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px;padding:10px 12px;background:var(--bg);border-radius:10px;font-size:13.5px;max-height:360px;overflow:auto}
@@ -165,6 +176,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
       <div class="row"><span class="label">Registration</span><div class="chips" id="regs" role="group" aria-label="Registration"></div></div>
       <div class="row"><span class="label">AI read</span><div class="chips" id="dist" role="group" aria-label="Distilled"></div></div>
       <div class="row"><span class="label">Prices</span><div class="chips" id="cheap" role="group" aria-label="Very cheap listings"></div></div>
+      <div class="row wide"><span class="label">Messages</span><div class="chips" id="msgf" role="group" aria-label="Messages"></div></div>
       <div class="row wide"><span class="label">My status</span><div class="chips" id="stat" role="group" aria-label="My status"></div></div>
     </div>
     <details class="tagbox" open>
@@ -251,13 +263,17 @@ const cap = (s) => String(s ?? "").replace(/^./, (c) => c.toUpperCase());
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
 
 const S = Object.assign({
-  cities: [], max: 900, q: "", kinds: [], reg: "any", dist: "any", stat: "any", cheap: "hide",
+  cities: [], max: 900, q: "", kinds: [], reg: "any", dist: "any", stat: "any", msgf: "any", cheap: "hide",
   tags: {}, // tag -> "in" | "out"
   sort: "per_person.asc.nullslast",
   ppl: 4,
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
 let pass = store.get("kn_pass") || "";
 let statuses = {};
+let threads = {}; // listing id -> {n, last_dir, last_at, last_body, last_channel} for listings that have messages
+const needsReply = (id) => threads[id]?.last_dir === "in" && !["rejected", "dead"].includes(statuses[id]?.status);
+const CHAN = { kamernet: "Kamernet", whatsapp: "WhatsApp", email: "Email", other: "Other" };
+const when = (t) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const openSet = new Set(); // listings the user has opened, kept when the list redraws
 document.addEventListener("toggle", (e) => { const d = e.target; if (d.matches?.("details.open")) d.open ? openSet.add(d.dataset.open) : openSet.delete(d.dataset.open); }, true);
 let offset = 0, total = 0, loaded = [];
@@ -314,6 +330,10 @@ function filters(){
   const out = Object.keys(S.tags).filter((t) => S.tags[t] === "out");
   if (inc.length) p.push(`all_tags=cs.{${inc.join(",")}}`);
   for (const t of out) p.push(`all_tags=not.cs.{${t}}`);
+  if (S.msgf === "reply" || S.msgf === "has"){
+    const ids = Object.keys(threads).filter((id) => S.msgf === "has" || needsReply(id));
+    p.push(`id=in.(${ids.length ? ids.join(",") : 0})`);
+  }
   if (S.stat !== "any"){
     const ids = Object.keys(statuses).filter((id) => statuses[id].status === S.stat);
     p.push(S.stat === "new" ? (Object.keys(statuses).length ? `id=not.in.(${Object.keys(statuses).join(",")})` : "id=gt.0") : `id=in.(${ids.length ? ids.join(",") : 0})`);
@@ -373,10 +393,18 @@ function card(r){
     </div>
     ${d?.summary ? `<div class="summary">${esc(d.summary)}</div>` : ""}
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
+    ${threads[r.id] ? `<div class="lastmsg"><span class="nr" data-nr="${r.id}" ${needsReply(String(r.id)) ? "" : "hidden"}>Needs reply</span> ${threads[r.id].last_dir === "in" ? "Landlord" : "Me"} · ${esc(CHAN[threads[r.id].last_channel] || threads[r.id].last_channel)} · ${esc(when(threads[r.id].last_at))}: ${esc(threads[r.id].last_body)}</div>` : ""}
     <details class="open" data-open="${r.id}"${openSet.has(String(r.id)) ? " open" : ""}>
     <summary><span class="oc">Open listing ▾</span><span class="cc">Close ▴</span>${st !== "new" ? ` <span class="stat" data-s="${st}">${cap(st)}</span>` : ""}</summary>
     <div class="inner">
     ${buckets(r)}
+    <details class="more" data-thread="${r.id}"><summary>Messages${threads[r.id] ? ` (${threads[r.id].n})` : ""}</summary>
+      <div class="thread" data-id="${r.id}"><div class="msgs">Loading…</div>
+        <textarea class="tbody" rows="3" placeholder="Write, paste or draft a message here…"></textarea>
+        <div class="trow"><select class="tdir"><option value="out">I sent this</option><option value="in">They wrote this</option></select>
+          <select class="tchan">${Object.entries(CHAN).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+          <button class="btn ghost tlog" type="button">Add to thread</button><button class="btn ghost tdraft" type="button">Draft reply</button><button class="btn ghost tgo" type="button">Copy and open chat</button></div>
+        <div class="tinfo msg"></div></div></details>
     <details class="more" data-full="${r.id}"><summary>Full ad text</summary><div class="full">Loading…</div></details>
     <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${cap(s)}</option>`).join("")}</select></label>
       <button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>
@@ -418,6 +446,7 @@ function renderPanel(){
   chips($("regs"), [["any","Any"],["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "reg", (v) => { S.reg = v; }, false);
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
+  chips($("msgf"), [["any","Any"],["reply","Needs my reply"],["has","Has messages"]], "msgf", (v) => { S.msgf = v; }, false);
   chips($("stat"), [["any","Any"],...STATUSES.map((s) => [s, cap(s)])], "stat", (v) => { S.stat = v; }, false);
   $("ppl").value = S.ppl; pplText(); $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
@@ -463,6 +492,10 @@ async function loadStatuses(){
   try { const b = await fn("status"); statuses = Object.fromEntries(b.statuses.map((s) => [String(s.id), s])); }
   catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Statuses: " + e.message; if (/passcode/.test(e.message)) { pass = ""; store.set("kn_pass", ""); renderPanel(); } }
 }
+async function loadThreads(){
+  if (!pass) return;
+  try { const b = await fn("status?threads=1"); threads = Object.fromEntries(b.threads.map((t) => [String(t.id), t])); } catch {}
+}
 async function headline(){
   try {
     const n = (await rest("listings?select=id&gone_at=is.null&dup_of=is.null&limit=1", { Prefer: "count=exact" })).headers.get("content-range").split("/")[1];
@@ -488,6 +521,7 @@ $("taggroups").onclick = (e) => {
 async function boot(){
   renderPanel();
   await loadStatuses();
+  await loadThreads();
   renderPanel();
   await Promise.all([load(true), headline(), loadTags()]);
 }
@@ -607,6 +641,50 @@ $("list").addEventListener("toggle", async (e) => {
     d.querySelector(".full").textContent = rows[0]?.description || "No description.";
   } catch { d.querySelector(".full").textContent = "Couldn't load the ad text."; delete d.dataset.loaded; }
 }, true);
+function drawThread(box, data){
+  box.dataset.conv = data.conv_id || "";
+  box.querySelector(".msgs").innerHTML = data.messages.length
+    ? data.messages.map((m) => `<div class="bub ${m.direction}"><div class="bm">${m.direction === "in" ? "Landlord" : "Me"} · ${esc(CHAN[m.channel] || m.channel)} · ${esc(when(m.at))}</div>${esc(m.body)}</div>`).join("")
+    : '<div class="nudge">No messages saved yet. They appear here when a landlord writes on Kamernet (read from your Gmail), or when you add one below.</div>';
+}
+async function loadThread(box){
+  try { drawThread(box, await fn(`status?thread=${box.dataset.id}`)); }
+  catch (err) { box.querySelector(".msgs").textContent = "Couldn't load messages: " + err.message; }
+}
+$("list").addEventListener("toggle", (e) => {
+  const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.thread || d.dataset.loaded) return;
+  d.dataset.loaded = "1"; loadThread(d.querySelector(".thread"));
+}, true);
+$("list").addEventListener("click", async (e) => {
+  const box = e.target.closest(".thread"); if (!box) return;
+  const id = Number(box.dataset.id), ta = box.querySelector(".tbody"), info = box.querySelector(".tinfo");
+  if (e.target.closest(".tlog")){
+    const body = ta.value.trim(); if (!body){ info.textContent = "Write or paste the message first."; return; }
+    try {
+      const r = await fn("status", { method: "POST", body: JSON.stringify({ action: "log", id, direction: box.querySelector(".tdir").value, channel: box.querySelector(".tchan").value, body }) });
+      if (r.status && r.status !== "new") statuses[id] = { ...(statuses[id] || {}), status: r.status };
+      const sel = box.closest("article").querySelector("select.stat"); if (sel && r.status){ sel.value = r.status; sel.dataset.s = r.status; }
+      ta.value = ""; info.textContent = "Added to the thread.";
+      await Promise.all([loadThread(box), loadThreads()]);
+      const nr = box.closest("article").querySelector("[data-nr]"); if (nr) nr.hidden = !needsReply(String(id));
+    } catch (err) { info.textContent = "Couldn't save: " + err.message; }
+  } else if (e.target.closest(".tdraft")){
+    if (!pass){ info.textContent = "Unlock with the passcode first."; return; }
+    info.textContent = "Writing a draft…";
+    try {
+      const r = await fn("replydraft", { method: "POST", body: JSON.stringify({ id }) });
+      ta.value = r.message; box.querySelector(".tdir").value = "out";
+      if (r.conv_url) box.dataset.convUrl = r.conv_url;
+      info.textContent = `Draft ready (nothing is sent). Edit it, press “Copy and open chat”, send it there, then “Add to thread”.${r.notes?.length ? " Note: " + r.notes.join(" · ") : ""}`;
+    } catch (err) { info.textContent = "Couldn't draft: " + err.message; }
+  } else if (e.target.closest(".tgo")){
+    const url = box.dataset.convUrl || (box.dataset.conv ? `https://kamernet.nl/en/my-messages/default/conversation/${box.dataset.conv}` : "");
+    if (!ta.value.trim()){ info.textContent = "Draft or write a message first."; return; }
+    const p = navigator.clipboard?.writeText(ta.value);
+    if (url) window.open(url, "_blank", "noopener");
+    if (p) p.then(() => { info.textContent = url ? "Copied. Paste it in the Kamernet chat and send it, then press “Add to thread”." : "Copied. No Kamernet chat is known for this listing, paste it wherever you are writing."; }).catch(() => ta.select()); else ta.select();
+  }
+});
 $("list").onchange = async (e) => {
   const sel = e.target.closest("select.stat"); if (!sel) return;
   const id = sel.dataset.id, status = sel.value;
