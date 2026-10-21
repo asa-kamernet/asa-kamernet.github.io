@@ -144,12 +144,9 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .selrow{gap:10px}
 .selall{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
 .btn.small{padding:3px 10px;font-size:12.5px}
-.drafts{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px}
-.drafts>summary{cursor:pointer;font-size:15px}
-.dhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:8px 0}
+.dbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13.5px}
 .rdy{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
-#dlist{display:flex;flex-direction:column;gap:12px;margin-top:10px}
-.ditem{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.ditem{grid-column:1 / -1;border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
 .ditem.ready{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok)}
 .dtop{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between}
 .ditem textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:8px;font:inherit;line-height:1.45;resize:vertical}
@@ -215,12 +212,13 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   </div>
   <div class="msg" id="msg" role="status"></div>
 
-  <details class="drafts" id="drafts" hidden open>
-    <summary><b>Drafts</b> <span id="dcount"></span></summary>
-    <div class="dhead"><label class="rdy"><input type="checkbox" id="dready"> All ready to send</label><button class="btn" id="dinstr" type="button">Copy send instruction</button></div>
-    <small id="dinfo">Edit any message, tick “Ready to send”, then copy the instruction and paste it to Claude, or copy and send each one yourself. Nothing is sent from this page.</small>
-    <div id="dlist"></div>
-  </details>
+  <div class="dbar" id="drafts" hidden>
+    <span id="dcount"></span>
+    <label class="rdy"><input type="checkbox" id="dready"> All ready to send</label>
+    <button class="btn ghost small" id="dshow" type="button">Show drafts</button>
+    <button class="btn small" id="dinstr" type="button">Copy send instruction</button>
+  </div>
+  <small id="dinfo"></small>
 
   <div class="list" id="list"></div>
   <div class="more-btn"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
@@ -345,6 +343,10 @@ function filters(){
   const out = Object.keys(S.tags).filter((t) => S.tags[t] === "out");
   if (inc.length) p.push(`all_tags=cs.{${inc.join(",")}}`);
   for (const t of out) p.push(`all_tags=not.cs.{${t}}`);
+  if (S.msgf === "draft"){
+    const ids = unsent().map((d) => d.listing_id);
+    p.push(`id=in.(${ids.length ? ids.join(",") : 0})`);
+  }
   if (S.msgf === "reply" || S.msgf === "has"){
     const ids = Object.keys(threads).filter((id) => S.msgf === "has" || needsReply(id));
     p.push(`id=in.(${ids.length ? ids.join(",") : 0})`);
@@ -409,6 +411,7 @@ function card(r){
     ${d?.summary ? `<div class="summary">${esc(d.summary)}</div>` : ""}
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
     ${threads[r.id] ? `<div class="lastmsg"><span class="nr" data-nr="${r.id}" ${needsReply(String(r.id)) ? "" : "hidden"}>Needs reply</span> ${threads[r.id].last_dir === "in" ? "Landlord" : "Me"} · ${esc(CHAN[threads[r.id].last_channel] || threads[r.id].last_channel)} · ${esc(when(threads[r.id].last_at))}: ${esc(threads[r.id].last_body)}</div>` : ""}
+    ${draftBlock(r.id)}
     <details class="open" data-open="${r.id}"${openSet.has(String(r.id)) ? " open" : ""}>
     <summary><span class="oc">Open listing ▾</span><span class="cc">Close ▴</span>${st !== "new" ? ` <span class="stat" data-s="${st}">${cap(st)}</span>` : ""}</summary>
     <div class="inner">
@@ -461,7 +464,7 @@ function renderPanel(){
   chips($("regs"), [["any","Any"],["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "reg", (v) => { S.reg = v; }, false);
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
-  chips($("msgf"), [["any","Any"],["reply","Needs my reply"],["has","Has messages"]], "msgf", (v) => { S.msgf = v; }, false);
+  chips($("msgf"), [["any","Any"],["reply","Needs my reply"],["has","Has messages"],["draft","Has a draft"]], "msgf", (v) => { S.msgf = v; }, false);
   chips($("stat"), [["any","Any"],...STATUSES.map((s) => [s, cap(s)])], "stat", (v) => { S.stat = v; }, false);
   $("ppl").value = S.ppl; pplText(); $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
@@ -635,7 +638,7 @@ async function draftFor(ids){
   picked.clear(); await loadDrafts(); syncPicks(); setAutoBtn();
   $("msg").className = bad ? "msg err" : "msg";
   $("msg").textContent = `${ok} draft${ok === 1 ? "" : "s"} written${bad ? `, ${bad} failed (${lastErr})` : ""}${skipped.length ? `, ${skipped.length} skipped (already applied or closed)` : ""} · cost $${cost.toFixed(4)}. Review them in the Drafts section below the filters.`;
-  if (ok) $("drafts").scrollIntoView({ block: "start", behavior: "smooth" });
+  if (ok){ S.msgf = "draft"; persist(); renderPanel(); load(true); }
 }
 $("applysel").onclick = () => draftFor([...picked]);
 
@@ -654,32 +657,31 @@ async function refreshEligible(){
 }
 $("auto").onclick = () => { const ids = eligible.slice(0, 10); if (!ids.length) return; ids.forEach((id) => picked.add(id)); syncPicks(); draftFor(ids); };
 
-// ---- Drafts section ----
+// ---- Drafts live inside each listing's card ----
 const unsent = () => drafts.filter((d) => d.send_status !== "sent");
 const readyOnes = () => drafts.filter((d) => d.send_status === "approved");
+const draftEdits = {}; // unsaved text by application id, kept when the list redraws
+function draftBlock(listingId){
+  const d = unsent().find((x) => x.listing_id === listingId); if (!d) return "";
+  const ready = d.send_status === "approved";
+  return `<div class="ditem${ready ? " ready" : ""}" data-aid="${d.id}" data-lid="${d.listing_id}">
+      <div class="dtop"><b>Draft message</b><label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
+      ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      <textarea class="dtext" aria-label="Draft message">${esc(draftEdits[d.id] ?? d.draft)}</textarea>
+      <div class="trow"><button class="btn ghost dgo" type="button">Copy and open Kamernet</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
+    </div>`;
+}
 async function loadDrafts(){
   if (!pass) return;
   try { drafts = (await fn("apply?queue=1")).items || []; } catch { return; }
   renderDrafts();
 }
 function renderDrafts(){
-  const open = unsent(), box = $("drafts");
-  box.hidden = open.length === 0;
-  $("dcount").textContent = `(${open.length}) · ${readyOnes().length} ready to send`;
+  const open = unsent();
+  $("drafts").hidden = open.length === 0;
+  $("dcount").textContent = `Drafts: ${open.length} · ${readyOnes().length} ready to send`;
   $("dready").checked = open.length > 0 && readyOnes().length === open.length;
-  const keep = {}; document.querySelectorAll("#dlist .dtext").forEach((t) => { keep[t.closest(".ditem").dataset.aid] = t.value; });
-  $("dlist").innerHTML = open.map((d) => {
-    const l = d.listing || {};
-    const pp = l.per_person != null ? eur(l.per_person) + " /pp" : l.price != null ? eur(l.price) : "";
-    const ready = d.send_status === "approved";
-    return `<article class="ditem${ready ? " ready" : ""}" data-aid="${d.id}" data-lid="${d.listing_id}">
-      <div class="dtop"><b>${esc(l.street || d.listing_id)}${l.city ? ", " + esc(l.city) : ""} · ${esc(pp)}</b>
-        <label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
-      ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
-      <textarea class="dtext" aria-label="Draft for ${esc(l.street || "")}">${esc(keep[d.id] ?? d.draft)}</textarea>
-      <div class="trow"><button class="btn ghost dgo" type="button">Copy and open Kamernet</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
-    </article>`;
-  }).join("");
+  renderList();
 }
 async function setReady(ids, ready){
   try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "ready", application_ids: ids, ready }) }); }
@@ -687,21 +689,22 @@ async function setReady(ids, ready){
   await loadDrafts();
 }
 $("dready").onchange = (e) => setReady(unsent().map((d) => d.id), e.target.checked);
-$("dlist").addEventListener("change", (e) => {
+$("dshow").onclick = () => { S.msgf = "draft"; persist(); renderPanel(); load(true); };
+$("list").addEventListener("change", (e) => {
   const c = e.target.closest(".dready1"); if (!c) return;
   setReady([Number(c.closest(".ditem").dataset.aid)], c.checked);
 });
 const saveTimers = {};
-$("dlist").addEventListener("input", (e) => {
+$("list").addEventListener("input", (e) => {
   const t = e.target.closest(".dtext"); if (!t) return;
   const it = t.closest(".ditem"), id = Number(it.dataset.aid), st = it.querySelector(".dst");
-  st.textContent = "Editing…"; clearTimeout(saveTimers[id]);
+  draftEdits[id] = t.value; st.textContent = "Editing…"; clearTimeout(saveTimers[id]);
   saveTimers[id] = setTimeout(async () => {
-    try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: t.value }) }); st.textContent = "Saved"; const d = drafts.find((x) => x.id === id); if (d) d.draft = t.value; }
+    try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: t.value }) }); st.textContent = "Saved"; const d = drafts.find((x) => x.id === id); if (d) d.draft = t.value; delete draftEdits[id]; }
     catch (err) { st.textContent = "Couldn't save: " + err.message; }
   }, 700);
 });
-$("dlist").addEventListener("click", async (e) => {
+$("list").addEventListener("click", async (e) => {
   const it = e.target.closest(".ditem"); if (!it) return;
   const id = Number(it.dataset.aid), lid = Number(it.dataset.lid), ta = it.querySelector(".dtext"), st = it.querySelector(".dst");
   if (e.target.closest(".dgo")){
@@ -712,18 +715,21 @@ $("dlist").addEventListener("click", async (e) => {
     try {
       await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: ta.value }) });
       await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: id }) });
-      statuses[lid] = { ...(statuses[lid] || {}), status: statuses[lid]?.status && statuses[lid].status !== "new" && statuses[lid].status !== "interested" ? statuses[lid].status : "applied" };
-      await Promise.all([loadDrafts(), loadThreads()]); refreshEligible(); renderList();
+      const cur = statuses[lid]?.status;
+      statuses[lid] = { ...(statuses[lid] || {}), status: !cur || cur === "new" || cur === "interested" ? "applied" : cur };
+      delete draftEdits[id];
+      await Promise.all([loadDrafts(), loadThreads()]); refreshEligible();
     } catch (err) { st.textContent = "Couldn't save: " + err.message; }
   } else if (e.target.closest(".ddel")){
-    try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "discard", application_id: id }) }); await loadDrafts(); }
+    try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "discard", application_id: id }) }); delete draftEdits[id]; await loadDrafts(); }
     catch (err) { st.textContent = "Couldn't discard: " + err.message; }
   }
 });
 $("dinstr").onclick = () => {
   const r = readyOnes();
   if (!r.length){ $("dinfo").textContent = "Tick “Ready to send” on at least one draft first."; return; }
-  const lines = r.map((d, i) => `${i + 1}. ${d.listing?.street || "?"}${d.listing?.city ? ", " + d.listing.city : ""} (listing ${d.listing_id}, application ${d.id})`).join("\n");
+  const name = (d) => { const l = loaded.find((x) => x.id === d.listing_id); return l ? `${l.street}, ${l.city}` : `listing ${d.listing_id}`; };
+  const lines = r.map((d, i) => `${i + 1}. ${name(d)} (listing ${d.listing_id}, application ${d.id})`).join("\n");
   const txt = `Please send these ${r.length} Kamernet application${r.length === 1 ? "" : "s"} through my Chrome, one at a time, with a normal gap of 10 to 30 seconds. Use my final text exactly as saved in the Supabase table "applications" (project sldfjyrpopypzbmhvbkq, send_status = 'approved', application ids: ${r.map((d) => d.id).join(", ")}). For each one: open https://kamernet.nl/en/react-to-listing/<listing id>, paste the text, set the number of people moving in (1, or 2 if the listing allows two), send it, then mark it sent (send_status 'sent', sent_at now, listing status 'applied', and add it to the message thread). Stop at once on any error, captcha or "Service Unavailable" and tell me.\n\n${lines}`;
   const p = navigator.clipboard?.writeText(txt);
   if (p) p.then(() => { $("dinfo").textContent = `Copied the instruction for ${r.length}. Paste it to Claude to send them.`; }).catch(() => { $("dinfo").textContent = "Couldn't copy automatically."; });
