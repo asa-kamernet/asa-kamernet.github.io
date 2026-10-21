@@ -85,6 +85,9 @@ details.tagbox>summary small{color:var(--muted);font-weight:400}
 .badge.warn{background:var(--warn-soft);color:var(--warn)}
 .badge.bad{background:var(--bad-soft);color:var(--bad)}
 .badge.lang{border-color:currentColor}
+.badge[data-t],.badge[data-reg]{cursor:pointer}
+.badge.f-in{box-shadow:0 0 0 2px var(--ok)}
+.badge.f-out{box-shadow:0 0 0 2px var(--bad);text-decoration:line-through}
 .state{font-size:12px;font-weight:600;padding:2px 9px;border-radius:7px}
 .state.on{background:var(--gold-badge);color:var(--gold-badge-ink)}
 /* Distilled cards: gold edge and a warm, brighter ground. Undistilled cards keep the plain look. */
@@ -181,6 +184,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
       <label class="field">Max per person <input type="range" id="max" min="300" max="2500" step="25" value="900"><output id="maxo">€900</output></label>
       <input type="search" id="q" placeholder="Search street or city" aria-label="Search street or city">
     </div>
+    <p class="hint">Tap a filter once to require it, twice to hide listings that match it, a third time to clear.</p>
     <div class="subs">
       <div class="row"><span class="label">Type</span><div class="chips" id="kinds" role="group" aria-label="Type"></div></div>
       <div class="row"><span class="label">Registration</span><div class="chips" id="regs" role="group" aria-label="Registration"></div></div>
@@ -276,7 +280,7 @@ const cap = (s) => String(s ?? "").replace(/^./, (c) => c.toUpperCase());
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
 
 const S = Object.assign({
-  cities: [], max: 900, q: "", kinds: [], reg: "any", dist: "any", stat: "any", msgf: "any", cheap: "hide",
+  cityF: {}, kindF: {}, regF: {}, statF: {}, max: 900, q: "", dist: "any", msgf: "any", cheap: "hide",
   tags: {}, // tag -> "in" | "out"
   sort: "per_person.asc.nullslast",
   ppl: 4,
@@ -322,8 +326,13 @@ async function fn(name, opts = {}){
 // ---- Query building ----
 function filters(){
   const p = ["gone_at=is.null", "dup_of=is.null"]; // reposts of an older live ad are hidden (dup_of)
-  if (S.cities.length) p.push(`city=in.(${S.cities.map((c) => `"${c}"`).join(",")})`);
-  if (S.kinds.length) p.push(`kind=in.(${S.kinds.join(",")})`);
+  const pick = (m, v) => Object.keys(m).filter((k) => m[k] === v);
+  const incl = (col, m, f = (x) => x) => { const a = pick(m, "in").map(f); if (a.length) p.push(`${col}=in.(${a.join(",")})`); };
+  const excl = (col, m, f = (x) => x) => { const a = pick(m, "out").map(f); if (a.length) p.push(`${col}=not.in.(${a.join(",")})`); };
+  const quote = (c) => `"${c}"`, regCol = (k) => ({ ok: "yes", not: "no", unknown: "unknown" })[k];
+  incl("city", S.cityF, quote); excl("city", S.cityF, quote);
+  incl("kind", S.kindF); excl("kind", S.kindF);
+  incl("reg", S.regF, regCol); excl("reg", S.regF, regCol);
   const ands = [];
   if (S.max < 2500){
     // price / min(slider, people allowed) <= max, written out for each number of people allowed
@@ -336,7 +345,6 @@ function filters(){
   const q = S.q.trim().replace(/[(),*"]/g, " ").trim();
   if (q) ands.push(`or(street.ilike.*${q}*,city.ilike.*${q}*)`);
   if (ands.length) p.push(`and=(${ands.join(",")})`);
-  if (S.reg !== "any") p.push(S.reg === "ok" ? "reg=eq.yes" : S.reg === "not" ? "reg=eq.no" : "reg=eq.unknown");
   if (S.dist === "yes") p.push("distilled_at=not.is.null");
   if (S.dist === "no") p.push("distilled_at=is.null");
   const inc = Object.keys(S.tags).filter((t) => S.tags[t] === "in");
@@ -351,9 +359,20 @@ function filters(){
     const ids = Object.keys(threads).filter((id) => S.msgf === "has" || needsReply(id));
     p.push(`id=in.(${ids.length ? ids.join(",") : 0})`);
   }
-  if (S.stat !== "any"){
-    const ids = Object.keys(statuses).filter((id) => statuses[id].status === S.stat);
-    p.push(S.stat === "new" ? (Object.keys(statuses).length ? `id=not.in.(${Object.keys(statuses).join(",")})` : "id=gt.0") : `id=in.(${ids.length ? ids.join(",") : 0})`);
+  { // my status: "new" means no status saved yet
+    const has = Object.keys(statuses), withSt = (list) => has.filter((id) => list.includes(statuses[id].status));
+    const inc = pick(S.statF, "in"), exc = pick(S.statF, "out");
+    if (inc.length){
+      const ids = withSt(inc), parts = [];
+      if (ids.length) parts.push(`id.in.(${ids.join(",")})`);
+      if (inc.includes("new")) parts.push(has.length ? `id.not.in.(${has.join(",")})` : "id.gt.0");
+      p.push(`or=(${parts.length ? parts.join(",") : "id.in.(0)"})`);
+    }
+    if (exc.length){
+      const ids = withSt(exc);
+      if (ids.length) p.push(`id=not.in.(${ids.join(",")})`);
+      if (exc.includes("new")) p.push(`id=in.(${has.length ? has.join(",") : 0})`);
+    }
   }
   return p;
 }
@@ -405,8 +424,8 @@ function card(r){
       <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${divisor(r)}${divisor(r) < r.people ? ` (up to ${r.people})` : ""}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
       ${r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
-      ${r.reg === "unknown" ? '<span class="badge">Registration unknown</span>' : ""}
-      ${badgeList(r).map((t) => `<span class="badge ${toneOf(t)} ${GROUP_OF[t] === 0 ? "lang" : ""}">${esc(label(t))}</span>`).join("")}
+      ${r.reg === "unknown" ? `<span class="badge ${S.regF.unknown ? "f-" + S.regF.unknown : ""}" data-reg="unknown" role="button" tabindex="0" title="Tap to filter on this">Registration unknown</span>` : ""}
+      ${badgeList(r).map((t) => `<span class="badge ${toneOf(t)} ${GROUP_OF[t] === 0 ? "lang" : ""} ${S.tags[t] ? "f-" + S.tags[t] : ""}" data-t="${esc(t)}" role="button" tabindex="0" title="Tap to show only listings with this, again to hide them">${esc(label(t))}</span>`).join("")}
     </div>
     ${d?.summary ? `<div class="summary">${esc(d.summary)}</div>` : ""}
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
@@ -443,6 +462,15 @@ function chips(el, opts, get, set, multi){
   el.innerHTML = opts.map(([v, text]) => `<button class="chip" type="button" data-v="${esc(v)}" aria-pressed="${multi ? S[get].includes(v) : S[get] === v}">${esc(text)}</button>`).join("");
   el.onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; set(b.dataset.v); persist(); renderPanel(); load(true); };
 }
+// Include / exclude chips: tap once to require, twice to hide, a third time to clear. Nothing selected = everything.
+function tri(el, opts, key){
+  el.innerHTML = opts.map(([v, text]) => `<button class="chip ${S[key][v] || ""}" type="button" data-v="${esc(v)}">${esc(text)}</button>`).join("");
+  el.onclick = (e) => {
+    const b = e.target.closest(".chip"); if (!b) return; const v = b.dataset.v, m = S[key];
+    if (!m[v]) m[v] = "in"; else if (m[v] === "in") m[v] = "out"; else delete m[v];
+    persist(); renderPanel(); load(true);
+  };
+}
 function renderTags(){
   const n = Object.fromEntries(tagCounts.map((t) => [t.tag, t.n]));
   const chip = (t) => `<button class="chip ${S.tags[t] || ""}" type="button" data-t="${esc(t)}">${esc(label(t))}${n[t] != null ? `<small>${n[t]}</small>` : ""}</button>`;
@@ -458,14 +486,13 @@ function renderTags(){
   $("tagsel").textContent = sel ? `${sel} selected` : "";
 }
 function renderPanel(){
-  chips($("cities"), [["__all", "All cities"], ...CITIES.map((c) => [c, c])], "cities", (v) => { S.cities = v === "__all" ? [] : S.cities.includes(v) ? S.cities.filter((x) => x !== v) : [...S.cities, v]; }, true);
-  $("cities").querySelector('[data-v="__all"]').setAttribute("aria-pressed", S.cities.length ? "false" : "true");
-  chips($("kinds"), [["room","Rooms"],["studio","Studios"],["apartment","Apartments"]], "kinds", (v) => { S.kinds = S.kinds.includes(v) ? S.kinds.filter((x) => x !== v) : [...S.kinds, v]; }, true);
-  chips($("regs"), [["any","Any"],["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "reg", (v) => { S.reg = v; }, false);
+  tri($("cities"), CITIES.map((c) => [c, c]), "cityF");
+  tri($("kinds"), [["room","Rooms"],["studio","Studios"],["apartment","Apartments"]], "kindF");
+  tri($("regs"), [["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "regF");
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
   chips($("msgf"), [["any","Any"],["reply","Needs my reply"],["has","Has messages"],["draft","Has a draft"]], "msgf", (v) => { S.msgf = v; }, false);
-  chips($("stat"), [["any","Any"],...STATUSES.map((s) => [s, cap(s)])], "stat", (v) => { S.stat = v; }, false);
+  tri($("stat"), STATUSES.map((s) => [s, cap(s)]), "statF");
   $("ppl").value = S.ppl; pplText(); $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
@@ -608,6 +635,16 @@ function syncPicks(){
   const more = $("selmore"), all = shown.length > 0 && n === shown.length && total > shown.length;
   more.hidden = !all; if (all) more.textContent = `Select all ${Math.min(total, 300).toLocaleString("en-GB")} matching`;
 }
+function badgeFilter(e){
+  const b = e.target.closest(".badge[data-t],.badge[data-reg]"); if (!b) return;
+  if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  const m = b.dataset.t ? S.tags : S.regF, k = b.dataset.t || b.dataset.reg;
+  if (!m[k]) m[k] = "in"; else if (m[k] === "in") m[k] = "out"; else delete m[k];
+  persist(); renderPanel(); load(true);
+}
+$("list").addEventListener("click", badgeFilter);
+$("list").addEventListener("keydown", badgeFilter);
 $("list").addEventListener("change", (e) => {
   const c = e.target.closest(".pick"); if (!c) return;
   const id = Number(c.dataset.id); c.checked ? picked.add(id) : picked.delete(id); syncPicks();
