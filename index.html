@@ -155,6 +155,20 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .btn.alt{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .btn.alt[disabled]{opacity:.5}
 .thumb{position:relative}
+.hbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.decide{display:flex;flex-direction:column;gap:6px;background:var(--warn-soft);border-radius:10px;padding:8px 10px;font-size:13px}
+.decide label{display:flex;flex-direction:column;gap:4px}
+.decide input,.fix input,.fact input,.fact select,.fact textarea{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:5px 8px;font:inherit;font-size:13px;width:100%;min-width:0}
+.fix{display:flex;flex-direction:column;gap:6px}
+.melist{display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto}
+.melist h4,.asklist h4{margin:6px 0 0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.fact{border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.fact .trow select{width:auto}
+.fact textarea{min-height:52px}
+.asklist{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow:auto}
+.rq{border:1px solid var(--line);border-radius:10px;padding:8px;font-size:13px;display:flex;flex-direction:column;gap:3px}
+.rq.done{border-color:var(--ok)} .rq.needs_chat{border-color:var(--warn)}
+.rr{color:var(--muted)}
 .pick{position:absolute;top:4px;left:4px;width:20px;height:20px;accent-color:var(--accent);cursor:pointer}
 .selrow{gap:10px}
 .selall{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
@@ -179,7 +193,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 <div class="wrap">
   <header class="hdr">
     <div><h1>Kamernet Live</h1><p class="sub" id="sub">Private tool</p></div>
-    <button class="btn ghost" id="lockbtn" type="button" hidden>Lock</button>
+    <div class="hbtns"><button class="btn ghost small" id="mebtn" type="button" hidden>Me</button><button class="btn small" id="askbtn" type="button" hidden>Tell Claude</button><button class="btn ghost small" id="lockbtn" type="button" hidden>Lock</button></div>
   </header>
 
   <section class="lock" id="lock" aria-label="Passcode">
@@ -243,6 +257,23 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   <div class="more-btn"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
   </div>
 </div>
+
+<dialog id="meDlg" aria-labelledby="meTitle"><div class="dlg">
+  <div class="qhead"><h3 id="meTitle">Me: facts and decisions</h3><button class="btn ghost small" id="meClose" type="button">Close</button></div>
+  <small>Your standing answers. Every draft uses them, so landlords' questions get answered without asking you again. "Writing rules" are style rules for every message.</small>
+  <div id="meList" class="melist">Loading…</div>
+  <div class="row-btn"><button class="btn ghost" id="meAdd" type="button">Add a fact</button></div>
+  <small id="meInfo"></small>
+</div></dialog>
+
+<dialog id="askDlg" aria-labelledby="askTitle"><div class="dlg">
+  <div class="qhead"><h3 id="askTitle">Tell Claude</h3><button class="btn ghost small" id="askClose" type="button">Close</button></div>
+  <small id="askAbout"></small>
+  <textarea id="askText" placeholder="What changed, what's wrong, or what should I do? For example: Oscar called, the viewing moved to Thursday 18:00. Or: this listing is a scam. Or: the Rotterdam filter shows nothing."></textarea>
+  <div class="row-btn"><button class="btn" id="askSend" type="button">Send to Claude</button></div>
+  <small>Claude picks this up at the next hourly check (08:00 to 22:00) and fixes data, statuses, facts and drafts. Code changes and sending messages wait for your chat with Claude. Nothing is sent to landlords from here.</small>
+  <div id="askList" class="asklist"></div>
+</div></dialog>
 
 <dialog id="applyDlg" aria-labelledby="applyTitle"><div class="dlg">
   <h3 id="applyTitle">Apply Assist</h3>
@@ -331,7 +362,7 @@ function persist(){ store.set("kn_state", JSON.stringify(S)); }
 // ---- Supabase calls ----
 function lockOut(msg){
   pass = ""; store.set("kn_pass", ""); statuses = {};
-  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true;
+  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true; $("mebtn").hidden = true; $("askbtn").hidden = true;
   $("gatemsg").textContent = msg || "Private tool. Enter the passcode to open it.";
 }
 // All data goes through the passcode-protected "data" function; nothing is publicly readable.
@@ -486,6 +517,7 @@ function card(r){
     ${standEditor(r.id)}
     <div class="actions">
       <button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>
+      <button class="btn ghost small wrong" type="button" data-id="${r.id}" data-street="${esc(r.street)}">Something's wrong</button>
       <a href="${esc(r.url)}" target="_blank" rel="noopener">Open on Kamernet ↗</a></div>
     </div></details>
   </article>`;
@@ -613,7 +645,7 @@ async function boot(){
   renderPanel();
   await Promise.all([load(true), headline(), loadTags(), loadDrafts()]);
 }
-function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; boot().catch(() => {}); }
+function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; $("mebtn").hidden = false; $("askbtn").hidden = false; boot().catch(() => {}); }
 $("passbtn").onclick = async () => {
   const v = $("pass").value.trim(); if (!v) return;
   pass = v; store.set("kn_pass", v); $("pass").value = "";
@@ -801,6 +833,65 @@ $("list").addEventListener("change", async (e) => {
   } catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save: " + err.message; }
 });
 
+// ---- Me: facts and decisions ----
+const TOPICS = ["Timing", "Money", "Who", "Needs", "Decisions", "Writing rules", "From drafts", "Other"];
+let facts = [];
+async function loadFacts(){
+  try { facts = (await fn("me?facts=1")).facts || []; } catch (e) { $("meList").textContent = "Couldn't load: " + e.message; return; }
+  drawFacts();
+}
+function factRow(f){
+  return `<div class="fact" data-id="${f.id || ""}">
+    <div class="trow"><select class="ftopic">${TOPICS.map((t) => `<option ${t === (f.topic || "Other") ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <input class="fq" value="${esc(f.question || "")}" placeholder="Question or subject"></div>
+    <textarea class="fa" placeholder="Your answer">${esc(f.answer || "")}</textarea>
+    <div class="trow"><button class="btn ghost small fsave" type="button">Save</button>${f.id ? '<button class="btn ghost small fdel" type="button">Delete</button>' : ""}<small class="fst">${f.source && f.source !== "me" ? "added by " + esc(f.source) : ""}</small></div>
+  </div>`;
+}
+function drawFacts(){
+  const by = {}; for (const f of facts) (by[f.topic] ||= []).push(f);
+  $("meList").innerHTML = TOPICS.filter((t) => by[t]).map((t) => `<h4>${t}</h4>${by[t].map(factRow).join("")}`).join("") || "No facts yet.";
+}
+$("mebtn").onclick = () => { $("meDlg").showModal(); loadFacts(); };
+$("meClose").onclick = () => $("meDlg").close();
+$("meAdd").onclick = () => { $("meList").insertAdjacentHTML("afterbegin", factRow({ topic: "Other" })); $("meList").querySelector(".fq").focus(); };
+$("meList").addEventListener("click", async (e) => {
+  const row = e.target.closest(".fact"); if (!row) return;
+  const st = row.querySelector(".fst");
+  if (e.target.closest(".fsave")){
+    try {
+      const r = await fn("me", { method: "POST", body: JSON.stringify({ action: "fact_save", id: Number(row.dataset.id) || undefined, topic: row.querySelector(".ftopic").value, question: row.querySelector(".fq").value, answer: row.querySelector(".fa").value }) });
+      row.dataset.id = r.id; st.textContent = "Saved";
+    } catch (err) { st.textContent = "Couldn't save: " + err.message; }
+  } else if (e.target.closest(".fdel")){
+    try { await fn("me", { method: "POST", body: JSON.stringify({ action: "fact_delete", id: Number(row.dataset.id) }) }); row.remove(); }
+    catch (err) { st.textContent = "Couldn't delete: " + err.message; }
+  }
+});
+
+// ---- Tell Claude: requests Claude handles at the next hourly check ----
+let askListing = null;
+const RQ = { open: "Waiting for Claude", done: "Done", needs_chat: "Needs your chat with Claude", declined: "Not done" };
+async function loadRequests(){
+  try {
+    const rs = (await fn("me?requests=1")).requests || [];
+    $("askList").innerHTML = rs.length ? `<h4>Earlier</h4>${rs.map((r) => `<div class="rq ${r.status}"><div><b>${esc(RQ[r.status] || r.status)}</b> · ${esc(when(r.created_at))}${r.listing_id ? " · listing " + r.listing_id : ""}</div><div>${esc(r.text)}</div>${r.reply ? `<div class="rr">Claude: ${esc(r.reply)}</div>` : ""}</div>`).join("")}` : "";
+  } catch (e) { $("askList").textContent = "Couldn't load earlier requests: " + e.message; }
+}
+function openAsk(listingId, street){
+  askListing = listingId || null;
+  $("askAbout").textContent = listingId ? `About ${street || "listing " + listingId}` : "";
+  $("askText").value = ""; $("askDlg").showModal(); loadRequests(); $("askText").focus();
+}
+$("askbtn").onclick = () => openAsk(null);
+$("askClose").onclick = () => $("askDlg").close();
+$("list").addEventListener("click", (e) => { const b = e.target.closest("button.wrong"); if (b) openAsk(Number(b.dataset.id), b.dataset.street); });
+$("askSend").onclick = async () => {
+  const text = $("askText").value.trim(); if (!text) return;
+  try { await fn("me", { method: "POST", body: JSON.stringify({ action: "request", text, listing_id: askListing }) }); $("askText").value = ""; await loadRequests(); }
+  catch (e) { $("askList").textContent = "Couldn't send: " + e.message; }
+};
+
 // ---- Drafts live inside each listing's card ----
 const unsent = () => drafts.filter((d) => d.send_status !== "sent");
 const readyOnes = () => drafts.filter((d) => d.send_status === "approved");
@@ -812,9 +903,12 @@ function draftBlock(listingId){
   const ready = d.send_status === "approved";
   return `<div class="ditem${ready ? " ready" : ""}" data-aid="${d.id}" data-lid="${d.listing_id}">
       <div class="dtop"><b>${d.kind === "reply" ? "Draft reply to the landlord" : "Draft first message"}</b><label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
-      ${[...(d.warnings || []), ...(d.notes || []).map((n) => "You decide: " + n)].length ? `<ul class="warns">${[...(d.warnings || []), ...(d.notes || []).map((n) => "You decide: " + n)].map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${(d.notes || []).length ? `<div class="decide"><b>You decide</b>${d.notes.map((n) => `<label><span>${esc(n)}</span><input class="dans" data-q="${esc(n)}" placeholder="Your answer"></label>`).join("")}</div>` : ""}
       <textarea class="dtext" aria-label="Draft message">${esc(draftEdits[d.id] ?? d.draft)}</textarea>
       <div class="trow"><button class="btn ghost dgo" type="button">${viaWhatsApp(d) ? "Copy (send it on WhatsApp)" : `Copy and open ${d.kind === "reply" ? "the chat" : "Kamernet"}`}</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
+      <div class="fix"><input class="dnote" placeholder="Change it: e.g. shorter, say I can come Saturday, don't mention Klorane">
+        <div class="trow"><label class="rdy"><input type="checkbox" class="drem" checked> Remember my answers</label><label class="rdy"><input type="checkbox" class="dalw"> Always do this</label><button class="btn ghost small dredo" type="button">Redo</button></div></div>
     </div>`;
 }
 async function loadDrafts(){
@@ -865,6 +959,16 @@ $("list").addEventListener("click", async (e) => {
       delete draftEdits[id];
       await Promise.all([loadDrafts(), loadThreads()]); refreshEligible();
     } catch (err) { st.textContent = "Couldn't save: " + err.message; }
+  } else if (e.target.closest(".dredo")){
+    const answers = [...it.querySelectorAll(".dans")].map((x) => ({ question: x.dataset.q, answer: x.value.trim() })).filter((x) => x.answer);
+    const instruction = it.querySelector(".dnote").value.trim();
+    if (!answers.length && !instruction){ st.textContent = "Write an answer or a change first."; return; }
+    st.textContent = "Rewriting…";
+    try {
+      await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: ta.value }) });
+      await fn("replydraft", { method: "POST", body: JSON.stringify({ action: "redo", application_id: id, instruction, answers, remember: it.querySelector(".drem").checked, always: it.querySelector(".dalw").checked }) });
+      delete draftEdits[id]; await loadDrafts();
+    } catch (err) { st.textContent = "Couldn't rewrite: " + err.message; }
   } else if (e.target.closest(".ddel")){
     try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "discard", application_id: id }) }); delete draftEdits[id]; await loadDrafts(); }
     catch (err) { st.textContent = "Couldn't discard: " + err.message; }
