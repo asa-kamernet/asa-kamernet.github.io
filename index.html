@@ -85,6 +85,9 @@ details.tagbox>summary small{color:var(--muted);font-weight:400}
 .badge.warn{background:var(--warn-soft);color:var(--warn)}
 .badge.bad{background:var(--bad-soft);color:var(--bad)}
 .badge.lang{border-color:currentColor}
+.verdict{grid-column:1 / -1;border:1px solid var(--warn);background:var(--warn-soft);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.vd{display:flex;align-items:center;gap:6px;font-size:13px}
+.vd input{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:3px 6px;font:inherit}
 .badge[data-t],.badge[data-reg]{cursor:pointer}
 .badge.f-in{box-shadow:0 0 0 2px var(--ok)}
 .badge.f-out{box-shadow:0 0 0 2px var(--bad);text-decoration:line-through}
@@ -126,7 +129,7 @@ details.more>summary{cursor:pointer;color:var(--muted)}
 .actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;border-top:1px solid var(--line);padding-top:10px}
 .actions a{margin-left:auto}
 .stat{border-radius:8px;border:1px solid var(--line);background:var(--bg);padding:3px 8px;font-size:13px}
-.stat[data-s="interested"]{background:var(--accent-soft)} .stat[data-s="applied"],.stat[data-s="replied"],.stat[data-s="viewing"]{background:var(--ok-soft)} .stat[data-s="rejected"],.stat[data-s="dead"]{background:var(--bad-soft)}
+.stat[data-s="interested"],.stat[data-s="hold"]{background:var(--accent-soft)} .stat[data-s="want"]{background:var(--ok-soft);font-weight:600} .stat[data-s="applied"],.stat[data-s="replied"],.stat[data-s="viewing"]{background:var(--ok-soft)} .stat[data-s="rejected"],.stat[data-s="dead"]{background:var(--bad-soft)}
 .more-btn{display:flex;justify-content:center;padding:6px 0}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 #app{display:flex;flex-direction:column;gap:14px}
@@ -216,6 +219,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   </div>
   <div class="msg" id="msg" role="status"></div>
 
+  <div class="dbar" id="vbar" hidden><span id="vcount"></span><button class="btn small" id="vshow" type="button">Show them</button></div>
   <div class="dbar" id="drafts" hidden>
     <span id="dcount"></span>
     <label class="rdy"><input type="checkbox" id="dready"> All ready to send</label>
@@ -249,7 +253,9 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 const SUPA = "https://sldfjyrpopypzbmhvbkq.supabase.co";
 const KEY = "sb_publishable_nsKv4ERySCv5KbJXhdqnqQ_eQn3Gu3z";
 const PAGE = 30;
-const STATUSES = ["new","interested","applied","replied","viewing","rejected","dead"];
+const STATUSES = ["new","interested","applied","replied","viewing","hold","want","rejected","dead"];
+const SLABEL = { hold: "Hold off", want: "Yes, want it", dead: "Not for me" };
+const slabel = (x) => SLABEL[x] || x.charAt(0).toUpperCase() + x.slice(1);
 const CITIES = ["Rotterdam","Amsterdam","Den Haag","Utrecht","Delft","Nijmegen"];
 
 // ---- Tag groups: how tags are sorted on the filter panel and on each card ----
@@ -351,6 +357,10 @@ function filters(){
   const out = Object.keys(S.tags).filter((t) => S.tags[t] === "out");
   if (inc.length) p.push(`all_tags=cs.{${inc.join(",")}}`);
   for (const t of out) p.push(`all_tags=not.cs.{${t}}`);
+  if (S.msgf === "verdict"){
+    const ids = pastViewings();
+    p.push(`id=in.(${ids.length ? ids.join(",") : 0})`);
+  }
   if (S.msgf === "draft"){
     const ids = unsent().map((d) => d.listing_id);
     p.push(`id=in.(${ids.length ? ids.join(",") : 0})`);
@@ -424,15 +434,17 @@ function card(r){
       <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${divisor(r)}${divisor(r) < r.people ? ` (up to ${r.people})` : ""}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
       ${r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
+      ${statuses[r.id]?.viewing_at && st === "viewing" ? `<span class="badge good">Viewing ${esc(when(statuses[r.id].viewing_at))}</span>` : ""}
       ${r.reg === "unknown" ? `<span class="badge ${S.regF.unknown ? "f-" + S.regF.unknown : ""}" data-reg="unknown" role="button" tabindex="0" title="Tap to filter on this">Registration unknown</span>` : ""}
       ${badgeList(r).map((t) => `<span class="badge ${toneOf(t)} ${GROUP_OF[t] === 0 ? "lang" : ""} ${S.tags[t] ? "f-" + S.tags[t] : ""}" data-t="${esc(t)}" role="button" tabindex="0" title="Tap to show only listings with this, again to hide them">${esc(label(t))}</span>`).join("")}
     </div>
     ${d?.summary ? `<div class="summary">${esc(d.summary)}</div>` : ""}
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
     ${threads[r.id] ? `<div class="lastmsg"><span class="nr" data-nr="${r.id}" ${needsReply(String(r.id)) ? "" : "hidden"}>Needs reply</span> ${threads[r.id].last_dir === "in" ? "Landlord" : "Me"} · ${esc(CHAN[threads[r.id].last_channel] || threads[r.id].last_channel)} · ${esc(when(threads[r.id].last_at))}: ${esc(threads[r.id].last_body)}</div>` : ""}
+    ${verdictBlock(r.id)}
     ${draftBlock(r.id)}
     <details class="open" data-open="${r.id}"${openSet.has(String(r.id)) ? " open" : ""}>
-    <summary><span class="oc">Open listing ▾</span><span class="cc">Close ▴</span>${st !== "new" ? ` <span class="stat" data-s="${st}">${cap(st)}</span>` : ""}</summary>
+    <summary><span class="oc">Open listing ▾</span><span class="cc">Close ▴</span>${st !== "new" ? ` <span class="stat" data-s="${st}">${slabel(st)}</span>` : ""}</summary>
     <div class="inner">
     ${buckets(r)}
     <details class="more" data-thread="${r.id}"><summary>Messages${threads[r.id] ? ` (${threads[r.id].n})` : ""}</summary>
@@ -443,7 +455,8 @@ function card(r){
           <button class="btn ghost tlog" type="button">Add to thread</button><button class="btn ghost tdraft" type="button">Draft reply</button><button class="btn ghost tgo" type="button">Copy and open chat</button></div>
         <div class="tinfo msg"></div></div></details>
     <details class="more" data-full="${r.id}"><summary>Full ad text</summary><div class="full">Loading…</div></details>
-    <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${cap(s)}</option>`).join("")}</select></label>
+    <div class="actions"><label>Status <select class="stat" data-s="${st}" data-id="${r.id}" ${pass ? "" : "disabled title='Unlock with the passcode'"}>${STATUSES.map((s) => `<option value="${s}" ${s === st ? "selected" : ""}>${slabel(s)}</option>`).join("")}</select></label>
+      <label class="vd" ${st === "viewing" ? "" : "hidden"}>Viewing <input type="datetime-local" class="vdate" data-id="${r.id}" value="${toLocalInput(statuses[r.id]?.viewing_at)}"></label>
       <button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>
       <a href="${esc(r.url)}" target="_blank" rel="noopener">Open on Kamernet ↗</a></div>
     </div></details>
@@ -491,8 +504,8 @@ function renderPanel(){
   tri($("regs"), [["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "regF");
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
-  chips($("msgf"), [["any","Any"],["reply","Needs my reply"],["has","Has messages"],["draft","Has a draft"]], "msgf", (v) => { S.msgf = v; }, false);
-  tri($("stat"), STATUSES.map((s) => [s, cap(s)]), "statF");
+  chips($("msgf"), [["any","Any"],["reply","Needs my reply"],["has","Has messages"],["draft","Has a draft"],["verdict","Needs my verdict"]], "msgf", (v) => { S.msgf = v; }, false);
+  tri($("stat"), STATUSES.map((s) => [s, slabel(s)]), "statF");
   $("ppl").value = S.ppl; pplText(); $("max").value = S.max; $("maxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max);
   $("q").value = S.q; $("sort").value = S.sort;
   renderTags();
@@ -623,7 +636,7 @@ $("applyClose").onclick = () => $("applyDlg").close();
 const picked = new Set();
 let eligible = [], drafts = [];
 const BLOCKING = "students-only,women-only,dutch-only,offsite-contact,scam-risk";
-const SKIP_STATUS = ["applied", "replied", "viewing", "rejected", "dead"];
+const SKIP_STATUS = ["applied", "replied", "viewing", "hold", "want", "rejected", "dead"];
 const MAX_DRAFT_RUN = 60; // drafts per press (about 0.1 cent each)
 function syncPicks(){
   document.querySelectorAll("#list .pick").forEach((c) => { c.checked = picked.has(Number(c.dataset.id)); });
@@ -655,7 +668,7 @@ $("selmore").onclick = async () => {
   catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't select them all: " + e.message; }
 };
 const origRender = renderList;
-renderList = function(){ origRender(); syncPicks(); };
+renderList = function(){ origRender(); syncPicks(); updateVerdictBar(); };
 
 async function draftFor(ids){
   if (!pass){ $("msg").className = "msg err"; $("msg").textContent = "Enter the passcode first."; return; }
@@ -693,6 +706,37 @@ async function refreshEligible(){
   setAutoBtn();
 }
 $("auto").onclick = () => { const ids = eligible.slice(0, 10); if (!ids.length) return; ids.forEach((id) => picked.add(id)); syncPicks(); draftFor(ids); };
+
+// ---- Viewings: once a viewing is in the past, ask "so what's the situation?" ----
+const toLocalInput = (iso) => { if (!iso) return ""; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const pastViewings = () => Object.keys(statuses).filter((id) => statuses[id].status === "viewing" && statuses[id].viewing_at && Date.parse(statuses[id].viewing_at) < Date.now());
+function verdictBlock(id){
+  const v = statuses[id]; if (!v || v.status !== "viewing" || !v.viewing_at || Date.parse(v.viewing_at) >= Date.now()) return "";
+  return `<div class="verdict" data-id="${id}"><b>The viewing was ${esc(when(v.viewing_at))}. So what's the situation?</b>
+    <div class="trow"><button class="btn small" data-v="want" type="button">Yes, want it</button><button class="btn ghost small" data-v="interested" type="button">Interested</button><button class="btn ghost small" data-v="hold" type="button">Hold off</button><button class="btn ghost small" data-v="dead" type="button">No</button></div></div>`;
+}
+function updateVerdictBar(){
+  const n = pastViewings().length; $("vbar").hidden = n === 0;
+  $("vcount").textContent = `${n} past viewing${n === 1 ? "" : "s"} waiting for your verdict`;
+}
+$("vshow").onclick = () => { S.msgf = "verdict"; persist(); renderPanel(); load(true); };
+async function setVerdict(id, status, extra = {}){
+  const prev = statuses[id] || {};
+  await fn("status", { method: "POST", body: JSON.stringify({ id: Number(id), status, note: prev.note ?? null, ...extra }) });
+  statuses[id] = { ...prev, status, ...(extra.viewing_at !== undefined ? { viewing_at: extra.viewing_at } : {}) };
+}
+$("list").addEventListener("click", async (e) => {
+  const b = e.target.closest(".verdict button[data-v]"); if (!b) return;
+  const id = b.closest(".verdict").dataset.id;
+  try { await setVerdict(id, b.dataset.v, { note: `${new Date().toISOString().slice(0, 10)}: after the viewing, Asa said: ${slabel(b.dataset.v)}` }); renderList(); refreshEligible(); }
+  catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save: " + err.message; }
+});
+$("list").addEventListener("change", async (e) => {
+  const d = e.target.closest(".vdate"); if (!d) return;
+  const id = d.dataset.id;
+  try { await setVerdict(id, statuses[id]?.status || "viewing", { viewing_at: d.value ? new Date(d.value).toISOString() : null }); renderList(); }
+  catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save the date: " + err.message; }
+});
 
 // ---- Drafts live inside each listing's card ----
 const unsent = () => drafts.filter((d) => d.send_status !== "sent");
@@ -827,6 +871,7 @@ $("list").onchange = async (e) => {
   const sel = e.target.closest("select.stat"); if (!sel) return;
   const id = sel.dataset.id, status = sel.value;
   sel.dataset.s = status;
+  const vd = sel.closest("article").querySelector(".vd"); if (vd) vd.hidden = status !== "viewing";
   try {
     await fn("status", { method: "POST", body: JSON.stringify({ id: Number(id), status, note: statuses[id]?.note ?? null }) });
     if (status === "new") delete statuses[id]; else statuses[id] = { ...(statuses[id] || {}), status };
