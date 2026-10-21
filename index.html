@@ -155,6 +155,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .btn.alt{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .btn.alt[disabled]{opacity:.5}
 .thumb{position:relative}
+.maplink{color:var(--accent);text-decoration:none;font-weight:600}
 .hbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .decide{display:flex;flex-direction:column;gap:6px;background:var(--warn-soft);border-radius:10px;padding:8px 10px;font-size:13px}
 .decide label{display:flex;flex-direction:column;gap:4px}
@@ -234,6 +235,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
       <select id="sort" aria-label="Sort">
         <option value="per_person.asc.nullslast">Cheapest per person</option>
         <option value="first_seen_at.desc">Newest first</option>
+        <option value="raw->>publishDate.desc.nullslast">Recently posted</option>
         <option value="size_m2.desc.nullslast">Biggest first</option>
         <option value="available_from.asc.nullslast">Available soonest</option>
       </select>
@@ -444,7 +446,7 @@ function filters(){
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
 }
-const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at";
+const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,posted:raw->>publishDate,pc:facts->>postcode";
 function qs(extra){ return [...filters(), `order=${S.sort}`, ...extra].join("&"); }
 
 // ---- Cards ----
@@ -479,6 +481,14 @@ function buckets(r){
     ${list("Stay and costs", [...stayLine, ...costLine])}${list("Features", d.features)}${list("Notes", (d.notes || []).filter((n) => !DUP_NOTE.test(n)))}
   </div>${d.registration_evidence ? `<div class="nudge">Registration: “${esc(d.registration_evidence)}”</div>` : ""}`;
 }
+// "Posted 3 days ago" from Kamernet's publish date (date only, so the time zone doesn't matter)
+function postedTxt(p){
+  if (!p) return "";
+  const d = Math.floor((Date.now() - Date.parse(p.slice(0, 10) + "T12:00:00Z")) / 86400000);
+  return d <= 0 ? "Posted today" : d === 1 ? "Posted yesterday" : d < 14 ? `Posted ${d} days ago` : "Posted " + day(p.slice(0, 10));
+}
+// Kamernet gives street + postcode, not the house number, so the pin is the right block, not the exact door
+const mapUrl = (r) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent([r.street, [r.pc, r.city].filter(Boolean).join(" ")].filter(Boolean).join(", "));
 function card(r){
   const x = stOf(r.id), sg = stageOf(r.id), closed = isClosed(r.id);
   const d = r.distilled;
@@ -487,7 +497,7 @@ function card(r){
   return `<article class="card${r.distilled_at ? " gold" : ""}" data-id="${r.id}">
     <div class="thumb" style="${r.photos?.[0] ? `background-image:url('${esc(r.photos[0])}')` : ""}" role="img" aria-label="Photo"><input type="checkbox" class="pick" data-id="${r.id}" aria-label="Select ${esc(r.street)}" ${picked.has(r.id) ? "checked" : ""}></div>
     <div class="where"><div class="street">${esc(r.street)}</div>
-      <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}</div></div>
+      <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}${r.posted ? `<span title="Kamernet publish date">${esc(postedTxt(r.posted))}</span>` : ""}<a class="maplink" href="${esc(mapUrl(r))}" target="_blank" rel="noopener" title="Street and postcode on Google Maps (Kamernet doesn't give the house number)">Map ↗</a></div></div>
     <div class="price"><div class="pp">${ppOf(r) != null ? eur(ppOf(r)) : eur(r.price)}<small> ${ppOf(r) != null ? "/pp" : "total"}</small></div>
       <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${divisor(r)}${divisor(r) < r.people ? ` (up to ${r.people})` : ""}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
