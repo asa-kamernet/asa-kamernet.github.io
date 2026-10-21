@@ -186,6 +186,20 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .qitem h4{margin:0;font-size:15px}
 .qitem textarea{min-height:120px}
 .empty{color:var(--muted);padding:28px 0;text-align:center}
+.warnbar{background:var(--warn-soft);border-color:var(--warn)}
+.health{display:flex;flex-direction:column;gap:4px;font-size:13px;background:var(--bg);border-radius:10px;padding:8px 10px}
+.hl{display:flex;gap:8px;align-items:baseline}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--line);transform:translateY(1px)}
+.dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.warn{background:var(--warn)}
+details.setup{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13.5px}
+details.setup>summary{cursor:pointer}
+details.setup ol{margin:8px 0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+details.setup code{font-family:var(--mono);font-size:12.5px;background:var(--bg);padding:0 4px;border-radius:4px}
+.sst{font-size:12px;color:var(--muted);font-weight:400}
+a.btn{text-decoration:none;display:inline-block}
+.ib{border:1px solid var(--warn);background:var(--warn-soft);border-radius:10px;padding:8px;font-size:13px;display:flex;flex-direction:column;gap:6px}
+.ib .body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:120px;overflow:auto;background:var(--surface);border-radius:8px;padding:6px 8px}
+.ib input{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:5px 8px;font:inherit;font-size:13px;min-width:0;flex:1 1 160px}
 @media (max-width:520px){.card{grid-template-columns:60px minmax(0,1fr) auto}.thumb{width:60px;height:60px}.pp{font-size:19px}.label{min-width:100%}}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:background .12s,color .12s}}
 </style>
@@ -194,7 +208,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 <div class="wrap">
   <header class="hdr">
     <div><h1>Kamernet Live</h1><p class="sub" id="sub">Private tool</p></div>
-    <div class="hbtns"><button class="btn ghost small" id="mebtn" type="button" hidden>Me</button><button class="btn small" id="askbtn" type="button" hidden>Tell Claude</button><button class="btn ghost small" id="lockbtn" type="button" hidden>Lock</button></div>
+    <div class="hbtns"><button class="btn ghost small" id="phonebtn" type="button" hidden>Alerts</button><button class="btn ghost small" id="mebtn" type="button" hidden>Me</button><button class="btn small" id="askbtn" type="button" hidden>Tell Claude</button><button class="btn ghost small" id="lockbtn" type="button" hidden>Lock</button></div>
   </header>
 
   <section class="lock" id="lock" aria-label="Passcode">
@@ -246,6 +260,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   </div>
   <div class="msg" id="msg" role="status"></div>
 
+  <div class="dbar warnbar" id="ibar" hidden><span id="itext"></span><button class="btn small" id="ishow" type="button">Open</button></div>
   <div class="dbar" id="vbar" hidden><span id="vcount"></span><button class="btn small" id="vshow" type="button">Show them</button></div>
   <div class="dbar" id="drafts" hidden>
     <span id="dcount"></span>
@@ -290,6 +305,108 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   </div>
   <small>Nothing is sent from here. Paste the message into Kamernet's form and press send yourself.</small>
 </div></dialog>
+
+<dialog id="phoneDlg" aria-labelledby="phoneTitle"><div class="dlg">
+  <div class="qhead"><h3 id="phoneTitle">Alerts</h3><button class="btn ghost small" id="phoneClose" type="button">Close</button></div>
+  <small>When a landlord writes on Kamernet or WhatsApp, your phone buzzes within about a minute (PC can be off), the message lands on the listing's card and a reply draft is ready. Nothing is ever sent for you.</small>
+  <div class="health" id="health">Loading…</div>
+  <div id="inboxOpen"></div>
+
+  <details class="setup" id="stepPush"><summary><b>1. Alerts on this phone</b> <span class="sst" id="sstPush"></span></summary>
+    <ol>
+      <li>Open this site on your phone in <b>Chrome</b> (this page, same address).</li>
+      <li>Press <b>Turn on alerts</b> and choose <b>Allow</b>.</li>
+      <li>Press <b>Send test alert</b>. Your phone should buzz. Tapping an alert opens Kamernet Live.</li>
+    </ol>
+    <div class="row-btn"><button class="btn" id="pushOn" type="button">Turn on alerts</button><button class="btn ghost" id="pushTest" type="button">Send test alert</button></div>
+    <small id="pushInfo"></small>
+  </details>
+
+  <details class="setup" id="stepGmail"><summary><b>2. Kamernet messages: Gmail check every minute</b> <span class="sst" id="sstGmail"></span></summary>
+    <small>A small script in your own Google account reads new Kamernet "New message" emails (read-only) and passes them here. Easiest on a computer; on the phone, switch Chrome to "Desktop site".</small>
+    <ol>
+      <li>Press <b>Open Google Apps Script</b>. A new project opens with a file Code.gs.</li>
+      <li>Press <b>Copy script</b>, then in Code.gs select everything, paste, and press Save (the disk icon).</li>
+      <li>Click the gear (<b>Project Settings</b>) on the left and tick <b>Show "appsscript.json" manifest file in editor</b>.</li>
+      <li>Back in the editor (<b>&lt; &gt;</b> on the left), open <b>appsscript.json</b>, press <b>Copy settings</b>, select everything there, paste, Save.</li>
+      <li>Open Code.gs again, choose <b>setup</b> in the list next to Run, press <b>Run</b>, and allow access. Google warns the app isn't verified (it's yours): press Advanced, then Go to the project, then Allow. It only asks to read your email and to reach this site.</li>
+      <li>Within a minute the Gmail check line above turns green.</li>
+    </ol>
+    <div class="row-btn"><a class="btn" href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">Open Google Apps Script</a><button class="btn ghost" id="copyGas" type="button">Copy script</button><button class="btn ghost" id="copyGasCfg" type="button">Copy settings</button></div>
+    <small id="gasInfo"></small>
+  </details>
+
+  <details class="setup" id="stepWa"><summary><b>3. WhatsApp from landlords (Android)</b> <span class="sst" id="sstWa"></span></summary>
+    <small>The free app MacroDroid passes WhatsApp notifications from landlords to this site. WhatsApp itself is never touched. Chats with saved contacts (friends) are ignored; only unsaved numbers and contacts whose name starts with "Huis" count. Tip: save a landlord as "Huis Jan Sonjestraat" and their messages land on that listing automatically.</small>
+    <ol>
+      <li>Install <a href="https://play.google.com/store/apps/details?id=com.arlosoft.macrodroid" target="_blank" rel="noopener">MacroDroid</a> and open it.</li>
+      <li>Add Macro. <b>Trigger</b>: search "Notification", pick <b>Notification Received</b>, select app <b>WhatsApp</b>, any content. Allow notification access when asked.</li>
+      <li><b>Action</b>: search "HTTP", pick <b>HTTP Request</b>. Method <b>POST</b>. URL: press <b>Copy address</b> and paste.</li>
+      <li>Headers: add one. Name <code>x-inbox-token</code>, value: press <b>Copy key</b> and paste.</li>
+      <li>Body / content: type <b>application/json</b>; press <b>Copy body</b> and paste.</li>
+      <li>Save the macro (name it "Kamernet"). In Android Settings, Apps, MacroDroid, Battery: <b>Unrestricted</b>.</li>
+      <li>Test: when a landlord WhatsApps you, the WhatsApp line above shows the time. If it stays empty, open the body in MacroDroid and use its magic text button to pick <b>Notification title</b> and <b>Notification text</b> in place of the words in square brackets.</li>
+    </ol>
+    <div class="row-btn"><button class="btn ghost" id="copyUrl" type="button">Copy address</button><button class="btn ghost" id="copyKey" type="button">Copy key</button><button class="btn ghost" id="copyBody" type="button">Copy body</button></div>
+    <small id="waInfo"></small>
+  </details>
+  <small>The key above only lets a script add incoming messages. It can't read anything. Keep it to yourself anyway.</small>
+</div></dialog>
+<script type="text/plain" id="gasCode">// Kamernet Live: Gmail check. Runs every minute in your own Google account (PC can be off).
+// It looks for new Kamernet "New message" emails and hands them to Kamernet Live.
+// Read-only: it never sends, labels or deletes mail. Run "setup" once.
+const INBOX_URL = "%URL%";
+const TOKEN = "%TOKEN%";
+
+function setup() {
+  ScriptApp.getProjectTriggers().filter((t) => t.getHandlerFunction() === "check").forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger("check").timeBased().everyMinutes(1).create();
+  check();
+}
+
+function text_(part, type) {
+  if (!part) return "";
+  if (part.mimeType === type && part.body && part.body.data) {
+    const d = part.body.data;
+    return typeof d === "string" ? Utilities.newBlob(Utilities.base64DecodeWebSafe(d)).getDataAsString() : Utilities.newBlob(d).getDataAsString();
+  }
+  for (const p of part.parts || []) { const t = text_(p, type); if (t) return t; }
+  return "";
+}
+
+function check() {
+  const props = PropertiesService.getScriptProperties();
+  const seen = JSON.parse(props.getProperty("seen") || "[]");
+  const list = Gmail.Users.Messages.list("me", { q: 'from:team@mail.kamernet.nl subject:"New message" newer_than:1d', maxResults: 20 });
+  const items = [];
+  for (const m of list.messages || []) {
+    if (items.length >= 5) break;
+    if (seen.indexOf(m.id) >= 0) continue;
+    const full = Gmail.Users.Messages.get("me", m.id, { format: "full" });
+    const subject = ((full.payload.headers || []).find((h) => h.name.toLowerCase() === "subject") || {}).value || "";
+    let body = text_(full.payload, "text/plain");
+    if (!body) body = text_(full.payload, "text/html").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
+    items.push({ id: m.id, subject: subject, body: body.slice(0, 6000), date: new Date(Number(full.internalDate)).toISOString() });
+  }
+  const res = UrlFetchApp.fetch(INBOX_URL, { method: "post", contentType: "application/json", headers: { "x-inbox-token": TOKEN }, payload: JSON.stringify({ source: "gmail", items: items }), muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return;
+  const out = JSON.parse(res.getContentText());
+  (out.handled || []).forEach((id) => seen.push(id));
+  props.setProperty("seen", JSON.stringify(seen.slice(-300)));
+}
+</script>
+<script type="text/plain" id="gasCfg">{
+  "timeZone": "Europe/Amsterdam",
+  "runtimeVersion": "V8",
+  "exceptionLogging": "STACKDRIVER",
+  "dependencies": { "enabledAdvancedServices": [{ "userSymbol": "Gmail", "serviceId": "gmail", "version": "v1" }] },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp"
+  ]
+}
+</script>
 
 
 <script>
@@ -364,7 +481,7 @@ function persist(){ store.set("kn_state", JSON.stringify(S)); }
 // ---- Supabase calls ----
 function lockOut(msg){
   pass = ""; store.set("kn_pass", ""); statuses = {};
-  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true; $("mebtn").hidden = true; $("askbtn").hidden = true;
+  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true; $("phonebtn").hidden = true; $("mebtn").hidden = true; $("askbtn").hidden = true;
   $("gatemsg").textContent = msg || "Private tool. Enter the passcode to open it.";
 }
 // All data goes through the passcode-protected "data" function; nothing is publicly readable.
@@ -653,9 +770,9 @@ async function boot(){
   await loadStatuses();
   await loadThreads();
   renderPanel();
-  await Promise.all([load(true), headline(), loadTags(), loadDrafts()]);
+  await Promise.all([load(true), headline(), loadTags(), loadDrafts(), loadInbox()]);
 }
-function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; $("mebtn").hidden = false; $("askbtn").hidden = false; boot().catch(() => {}); }
+function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; $("phonebtn").hidden = false; $("mebtn").hidden = false; $("askbtn").hidden = false; boot().catch(() => {}); }
 $("passbtn").onclick = async () => {
   const v = $("pass").value.trim(); if (!v) return;
   pass = v; store.set("kn_pass", v); $("pass").value = "";
@@ -1062,6 +1179,104 @@ $("distill").onclick = async () => {
   } catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Distill failed: " + e.message; }
   finally { setDistillBtn(); }
 };
+
+// ---- Alerts: new landlord messages from Gmail (a script in your Google account) and WhatsApp (MacroDroid),
+//      pushed to this phone by the "inbox" function. The key shown here can only add incoming messages. ----
+let inbox = null;
+const ago = (t) => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+const gmailOk = () => !!inbox?.health.gmail_ping && Date.now() - Date.parse(inbox.health.gmail_ping) < 15 * 60000;
+async function loadInbox(){
+  if (!pass) return;
+  try { inbox = await fn("inbox?setup=1"); } catch { return; }
+  const n = inbox.open.length, stopped = !!inbox.health.gmail_ping && !gmailOk();
+  $("ibar").hidden = !n && !stopped;
+  $("itext").textContent = n ? `${n} new message${n === 1 ? " needs" : "s need"} a listing` : "Alerts: the Gmail check has stopped running";
+  if ($("phoneDlg").open) drawInbox();
+}
+async function thisPhoneSub(){ try { return await (await navigator.serviceWorker?.getRegistration())?.pushManager.getSubscription(); } catch { return null; } }
+async function drawInbox(){
+  if (!inbox){ $("health").textContent = "Couldn't load the alert status."; return; }
+  const h = inbox.health, line = (cls, txt) => `<div class="hl"><span class="dot ${cls}"></span><span>${txt}</span></div>`;
+  const mine = await thisPhoneSub();
+  $("health").innerHTML = [
+    inbox.push_devices ? line("ok", `Alerts on for ${inbox.push_devices} device${inbox.push_devices === 1 ? "" : "s"}${mine ? " (this one too)" : ""}${h.last_push ? ` · last alert ${ago(h.last_push)}` : ""}`) : line("warn", "No phone has alerts on yet (step 1)"),
+    h.gmail_ping ? (gmailOk() ? line("ok", `Gmail check running · last run ${ago(h.gmail_ping)}`) : line("bad", `Gmail check stopped · last run ${ago(h.gmail_ping)}. Open step 2 and run setup again.`)) : line("warn", "Gmail check not set up yet (step 2)"),
+    h.phone_last ? line("ok", `WhatsApp forwarding works · last notification ${ago(h.phone_last)}`) : line("warn", "WhatsApp: nothing received from the phone yet (step 3)"),
+    h.push_error && /browser/.test(h.push_error) && (!h.last_push || Date.parse(h.push_error.slice(0, 24)) > Date.parse(h.last_push)) ? line("bad", `Last alert failed: ${esc(h.push_error.slice(25, 160))}`) : "",
+  ].join("");
+  const done = { Push: inbox.push_devices > 0, Gmail: gmailOk(), Wa: !!h.phone_last };
+  for (const k in done) $("sst" + k).textContent = done[k] ? "✓ done" : "to do";
+  const firstTodo = Object.keys(done).find((k) => !done[k]);
+  if (firstTodo && !document.querySelector("details.setup[open]")) $("step" + firstTodo).open = true;
+  const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
+  $("inboxOpen").innerHTML = inbox.open.length ? `<h4 class="lbl">Which listing is this about?</h4>${inbox.open.map((i) => `<div class="ib" data-iid="${i.id}">
+      <div><b>${src(i)}</b> · ${esc(when(i.created_at))}${i.summary ? " · " + esc(i.summary) : ""}</div>
+      ${i.state === "error" ? `<div>Couldn't read it automatically (${esc((i.error || "").slice(0, 80))}). Picking the listing tries again.</div>` : ""}
+      <div class="body">${esc(i.body || "")}</div>
+      <div class="trow"><input class="ifind" placeholder="Street or listing number"><button class="btn small ifindb" type="button">Find</button><button class="btn ghost small iign" type="button">Not about housing</button></div>
+      <div class="trow icands"></div><small class="ist"></small></div>`).join("")}` : "";
+}
+$("phonebtn").onclick = () => { $("phoneDlg").showModal(); drawInbox(); loadInbox(); };
+$("ishow").onclick = () => $("phonebtn").click();
+$("phoneClose").onclick = () => $("phoneDlg").close();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && pass) loadInbox(); });
+$("inboxOpen").addEventListener("click", async (e) => {
+  const it = e.target.closest(".ib"); if (!it) return;
+  const iid = Number(it.dataset.iid), st = it.querySelector(".ist"), cands = it.querySelector(".icands");
+  if (e.target.closest(".ifindb")){
+    const q = it.querySelector(".ifind").value.trim(); if (!q) return;
+    if (/^\d+$/.test(q)){ cands.innerHTML = `<button class="btn ghost small icand" data-lid="${q}" type="button">Listing ${q}</button>`; return; }
+    st.textContent = "Searching…";
+    try {
+      const r = await fn(`status?find=${encodeURIComponent(q)}`);
+      st.textContent = r.candidates.length ? "Tap the right one:" : "No listing with that street. Try part of the name.";
+      cands.innerHTML = r.candidates.map((c) => `<button class="btn ghost small icand" data-lid="${c.id}" type="button">${esc(c.street)}, ${esc(c.city)} · ${eur(c.price)}${c.my_status !== "new" ? " · " + esc(c.my_status) : ""}${c.gone_at ? " · gone" : ""}</button>`).join("");
+    } catch (err) { st.textContent = "Couldn't search: " + err.message; }
+  } else if (e.target.closest(".icand")){
+    st.textContent = "Filing it and writing a reply draft…";
+    try {
+      await fn("inbox", { method: "POST", body: JSON.stringify({ action: "assign", inbox_id: iid, listing_id: Number(e.target.closest(".icand").dataset.lid) }) });
+      await Promise.all([loadStatuses(), loadThreads()]); await loadDrafts(); await loadInbox();
+    } catch (err) { st.textContent = "Couldn't file it: " + err.message; }
+  } else if (e.target.closest(".iign")){
+    try { await fn("inbox", { method: "POST", body: JSON.stringify({ action: "ignore", inbox_id: iid }) }); await loadInbox(); }
+    catch (err) { st.textContent = "Couldn't hide it: " + err.message; }
+  }
+});
+$("inboxOpen").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.closest(".ifind")) e.target.closest(".ib").querySelector(".ifindb").click(); });
+const b64ToU8 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+$("pushOn").onclick = async () => {
+  const info = $("pushInfo");
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)){ info.textContent = "This browser can't show alerts. Open this page in Chrome on your Android phone."; return; }
+  try {
+    if (await Notification.requestPermission() !== "granted"){ info.textContent = "Alerts are blocked for this site. In Chrome tap the icon left of the address, then Permissions, Notifications: Allow. Then press the button again."; return; }
+    info.textContent = "Turning on…";
+    const reg = await navigator.serviceWorker.register("sw.js"); await navigator.serviceWorker.ready;
+    if (!inbox) await loadInbox();
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(inbox.vapid_public) });
+    await fn("inbox", { method: "POST", body: JSON.stringify({ action: "subscribe", sub: sub.toJSON(), label: /Android/i.test(navigator.userAgent) ? "Android phone" : "Computer" }) });
+    info.textContent = "Alerts are on for this device. Press Send test alert to check.";
+    await loadInbox(); drawInbox();
+  } catch (err) { info.textContent = "Couldn't turn on alerts: " + err.message; }
+};
+$("pushTest").onclick = async () => {
+  try {
+    const r = await fn("inbox", { method: "POST", body: JSON.stringify({ action: "test_push" }) });
+    $("pushInfo").textContent = r.subs ? "Test alert sent. It should arrive in a few seconds." : "No device has alerts on yet. Press Turn on alerts first.";
+    loadInbox();
+  } catch (err) { $("pushInfo").textContent = "Couldn't send: " + err.message; }
+};
+function copyText(txt, el, what){
+  const p = navigator.clipboard?.writeText(txt);
+  if (p) p.then(() => { el.textContent = `Copied ${what}. Paste it where the step says.`; }).catch(() => { el.textContent = "Couldn't copy automatically."; });
+  else el.textContent = "Couldn't copy automatically.";
+}
+const needInbox = (el) => { if (!inbox){ el.textContent = "Still loading, try again in a second."; loadInbox(); return false; } return true; };
+$("copyGas").onclick = () => { if (needInbox($("gasInfo"))) copyText($("gasCode").textContent.trim().replace("%URL%", inbox.inbox_url).replace("%TOKEN%", inbox.token) + "\n", $("gasInfo"), "the script"); };
+$("copyGasCfg").onclick = () => copyText($("gasCfg").textContent.trim() + "\n", $("gasInfo"), "the settings");
+$("copyUrl").onclick = () => { if (needInbox($("waInfo"))) copyText(inbox.inbox_url, $("waInfo"), "the address"); };
+$("copyKey").onclick = () => { if (needInbox($("waInfo"))) copyText(inbox.token, $("waInfo"), "the key"); };
+$("copyBody").onclick = () => copyText('{"source":"whatsapp","from":"[notification_title]","text":"[notification]"}', $("waInfo"), "the body");
 
 // ---- Start ----
 if (pass) enterApp();
