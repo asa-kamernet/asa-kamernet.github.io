@@ -167,7 +167,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
 .fact textarea{min-height:52px}
 .asklist{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow:auto}
 .rq{border:1px solid var(--line);border-radius:10px;padding:8px;font-size:13px;display:flex;flex-direction:column;gap:3px}
-.rq.done{border-color:var(--ok)} .rq.needs_chat{border-color:var(--warn)}
+.rq.done{border-color:var(--ok)} .rq.needs_chat{border-color:var(--accent)} .rq.needs_asa{border-color:var(--warn);background:var(--warn-soft)}
 .rr{color:var(--muted)}
 .pick{position:absolute;top:4px;left:4px;width:20px;height:20px;accent-color:var(--accent);cursor:pointer}
 .selrow{gap:10px}
@@ -271,7 +271,7 @@ dialog::backdrop{background:rgba(10,16,22,.55)}
   <small id="askAbout"></small>
   <textarea id="askText" placeholder="What changed, what's wrong, or what should I do? For example: Oscar called, the viewing moved to Thursday 18:00. Or: this listing is a scam. Or: the Rotterdam filter shows nothing."></textarea>
   <div class="row-btn"><button class="btn" id="askSend" type="button">Send to Claude</button></div>
-  <small>Claude picks this up at the next hourly check (08:00 to 22:00) and fixes data, statuses, facts and drafts. Code changes and sending messages wait for your chat with Claude. Nothing is sent to landlords from here.</small>
+  <small>Claude picks this up at the next hourly check (08:00 to 22:00) and fixes data, statuses, facts and drafts. Bigger changes (new features, fixes to the site) go to the builder agent, which runs at 09:00, 13:00, 17:00 and 21:00. If Claude has a question, it shows here; answer it with a new message. Nothing is sent to landlords from here.</small>
   <div id="askList" class="asklist"></div>
 </div></dialog>
 
@@ -871,7 +871,7 @@ $("meList").addEventListener("click", async (e) => {
 
 // ---- Tell Claude: requests Claude handles at the next hourly check ----
 let askListing = null;
-const RQ = { open: "Waiting for Claude", done: "Done", needs_chat: "Needs your chat with Claude", declined: "Not done" };
+const RQ = { open: "Waiting for Claude", done: "Done", needs_chat: "Queued for the builder (runs 09, 13, 17, 21h)", needs_asa: "Claude has a question for you", declined: "Not done" };
 async function loadRequests(){
   try {
     const rs = (await fn("me?requests=1")).requests || [];
