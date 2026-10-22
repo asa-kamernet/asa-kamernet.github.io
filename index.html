@@ -286,9 +286,9 @@ a.btn{text-decoration:none;display:inline-block}
 <dialog id="askDlg" aria-labelledby="askTitle"><div class="dlg">
   <div class="qhead"><h3 id="askTitle">Tell Claude</h3><button class="btn ghost small" id="askClose" type="button">Close</button></div>
   <small id="askAbout"></small>
-  <textarea id="askText" placeholder="What changed, what's wrong, or what should I do? For example: Oscar called, the viewing moved to Thursday 18:00. Or: this listing is a scam. Or: the Rotterdam filter shows nothing."></textarea>
+  <textarea id="askText" placeholder="What changed, or what should I do? For example: Oscar called, the viewing moved to Thursday 18:00. Or: this listing is a scam. Or: ask Max if Saturday works instead."></textarea>
   <div class="row-btn"><button class="btn" id="askSend" type="button">Send to Claude</button></div>
-  <small>Claude starts on it the moment you press Send (your PC can be off) and answers here within seconds: statuses, viewing times, facts, questions about your listings, and reply drafts on the cards. Bigger changes (new features, fixes to the site) go to the builder agent, which runs at 09:00, 13:00, 17:00 and 21:00. If Claude has a question, it shows here; answer it with a new message. Nothing is sent to landlords from here.</small>
+  <small>Claude starts on it the moment you press Send (your PC can be off) and answers here within seconds: statuses, viewing times, facts, questions about your listings, and reply drafts on the cards. Changes to the site itself (new features, fixes, layout) aren't made from here: ask for those in a Claude chat. If Claude has a question, it shows here; answer it with a new message. Nothing is sent to landlords from here.</small>
   <div id="askList" class="asklist"></div>
 </div></dialog>
 
@@ -998,7 +998,7 @@ $("meList").addEventListener("click", async (e) => {
 
 // ---- Tell Claude: the server starts on each request the moment it is sent (function "ask"); the hourly check is the backup ----
 let askListing = null, askPoll = null, askPolls = 0;
-const RQ = { open: "Waiting for Claude", working: "Claude is on it…", done: "Done", needs_chat: "Queued for the builder (runs 09, 13, 17, 21h)", needs_asa: "Claude has a question for you", declined: "Not done" };
+const RQ = { open: "Waiting for Claude", working: "Claude is on it…", done: "Done", needs_chat: "For a Claude chat (a change to the site itself)", needs_asa: "Claude has a question for you", declined: "Not done" };
 async function loadRequests(){
   try {
     const rs = (await fn("me?requests=1")).requests || [];
