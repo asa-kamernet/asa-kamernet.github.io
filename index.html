@@ -200,6 +200,33 @@ a.btn{text-decoration:none;display:inline-block}
 .ib{border:1px solid var(--warn);background:var(--warn-soft);border-radius:10px;padding:8px;font-size:13px;display:flex;flex-direction:column;gap:6px}
 .ib .body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:120px;overflow:auto;background:var(--surface);border-radius:8px;padding:6px 8px}
 .ib input{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:5px 8px;font:inherit;font-size:13px;min-width:0;flex:1 1 160px}
+/* Agenda of viewings and move-in, the deal panel (offer to signed), landlord contact, send notes */
+.agenda{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.agenda h4{margin:0;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.ag{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.ag b{font-family:var(--mono);font-weight:500;min-width:118px}
+.ag.clash b{color:var(--bad)}
+.ag a,.ag button{font-size:13px}
+.linkbtn{border:0;background:none;color:var(--accent);padding:0;cursor:pointer;font:inherit}
+.deal{grid-column:1 / -1;border:1px solid var(--ok);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.deal h4{margin:0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.deal .sec{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:8px}
+.deal .sec:first-of-type{border-top:0;padding-top:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 10px}
+.grid2 label,.contact label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+.grid2 input,.grid2 select,.contact input,.pay input,.dlg input,.dlg select{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:5px 8px;font:inherit;font-size:13.5px;min-width:0;width:100%}
+.chk{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;cursor:pointer}
+.chk input{margin-top:3px;accent-color:var(--ok)}
+.chk.auto{color:var(--muted)}
+.pay{border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.pay.approved{border-color:var(--accent)} .pay.paid{border-color:var(--ok);background:var(--ok-soft)}
+.pay .q{font-weight:600}
+.review{background:var(--bg);border-radius:10px;padding:8px 10px;font-size:13.5px;display:flex;flex-direction:column;gap:4px}
+.review ul{margin:0;padding-left:18px}
+.verdict-ok{color:var(--ok);font-weight:600} .verdict-ask{color:var(--warn);font-weight:600} .verdict-no{color:var(--bad);font-weight:600}
+.contact{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px 10px}
+.why{font-size:12px;color:var(--muted)}
+.focusbar{background:var(--accent-soft);border-color:var(--accent);scroll-margin-top:130px}
 @media (max-width:520px){.card{grid-template-columns:60px minmax(0,1fr) auto}.thumb{width:60px;height:60px}.pp{font-size:19px}.label{min-width:100%}}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:background .12s,color .12s}}
 </style>
@@ -208,7 +235,7 @@ a.btn{text-decoration:none;display:inline-block}
 <div class="wrap">
   <header class="hdr">
     <div><h1>Kamernet Live</h1><p class="sub" id="sub">Private tool</p></div>
-    <div class="hbtns"><button class="btn ghost small" id="phonebtn" type="button" hidden>Alerts</button><button class="btn ghost small" id="mebtn" type="button" hidden>Me</button><button class="btn small" id="askbtn" type="button" hidden>Tell Claude</button><button class="btn ghost small" id="lockbtn" type="button" hidden>Lock</button></div>
+    <div class="hbtns"><button class="btn ghost small" id="phonebtn" type="button" hidden>Status</button><button class="btn ghost small" id="addbtn" type="button" hidden>Add a place</button><button class="btn ghost small" id="mebtn" type="button" hidden>Me</button><button class="btn small" id="askbtn" type="button" hidden>Tell Claude</button><button class="btn ghost small" id="lockbtn" type="button" hidden>Lock</button></div>
   </header>
 
   <section class="lock" id="lock" aria-label="Passcode">
@@ -260,13 +287,13 @@ a.btn{text-decoration:none;display:inline-block}
   </div>
   <div class="msg" id="msg" role="status"></div>
 
+  <div class="dbar focusbar" id="fbar" hidden><span id="ftext"></span><button class="btn small" id="fclear" type="button">Show all listings</button></div>
   <div class="dbar warnbar" id="ibar" hidden><span id="itext"></span><button class="btn small" id="ishow" type="button">Open</button></div>
+  <section class="agenda" id="agenda" hidden aria-label="Coming up"></section>
   <div class="dbar" id="vbar" hidden><span id="vcount"></span><button class="btn small" id="vshow" type="button">Show them</button></div>
   <div class="dbar" id="drafts" hidden>
     <span id="dcount"></span>
-    <label class="rdy"><input type="checkbox" id="dready"> All ready to send</label>
     <button class="btn ghost small" id="dshow" type="button">Show drafts</button>
-    <button class="btn small" id="dinstr" type="button">Copy send instruction</button>
   </div>
   <small id="dinfo"></small>
 
@@ -307,107 +334,34 @@ a.btn{text-decoration:none;display:inline-block}
 </div></dialog>
 
 <dialog id="phoneDlg" aria-labelledby="phoneTitle"><div class="dlg">
-  <div class="qhead"><h3 id="phoneTitle">Alerts</h3><button class="btn ghost small" id="phoneClose" type="button">Close</button></div>
-  <small>When a landlord writes on Kamernet or WhatsApp, your phone buzzes within about a minute (PC can be off), the message lands on the listing's card and a reply draft is ready. Nothing is ever sent for you.</small>
+  <div class="qhead"><h3 id="phoneTitle">Status</h3><button class="btn ghost small" id="phoneClose" type="button">Close</button></div>
+  <small>Is everything that works for you running? Green means yes. New landlord messages (Kamernet, email, WhatsApp) land on the listing's card with a reply draft, and your phone buzzes. This all runs with your PC off.</small>
   <div class="health" id="health">Loading…</div>
+  <div class="row-btn"><button class="btn" id="pushOn" type="button">Alerts on this phone</button><button class="btn ghost" id="pushTest" type="button">Send test alert</button></div>
+  <small id="pushInfo">Alerts are per phone: press the button once on each phone (in Chrome) and choose Allow.</small>
   <div id="inboxOpen"></div>
-
-  <details class="setup" id="stepPush"><summary><b>1. Alerts on this phone</b> <span class="sst" id="sstPush"></span></summary>
-    <ol>
-      <li>Open this site on your phone in <b>Chrome</b> (this page, same address).</li>
-      <li>Press <b>Turn on alerts</b> and choose <b>Allow</b>.</li>
-      <li>Press <b>Send test alert</b>. Your phone should buzz. Tapping an alert opens Kamernet Live.</li>
-    </ol>
-    <div class="row-btn"><button class="btn" id="pushOn" type="button">Turn on alerts</button><button class="btn ghost" id="pushTest" type="button">Send test alert</button></div>
-    <small id="pushInfo"></small>
-  </details>
-
-  <details class="setup" id="stepGmail"><summary><b>2. Kamernet messages: Gmail check every minute</b> <span class="sst" id="sstGmail"></span></summary>
-    <small>A small script in your own Google account reads new Kamernet "New message" emails (read-only) and passes them here. Easiest on a computer; on the phone, switch Chrome to "Desktop site".</small>
-    <ol>
-      <li>Press <b>Open Google Apps Script</b>. A new project opens with a file Code.gs.</li>
-      <li>Press <b>Copy script</b>, then in Code.gs select everything, paste, and press Save (the disk icon).</li>
-      <li>Click the gear (<b>Project Settings</b>) on the left and tick <b>Show "appsscript.json" manifest file in editor</b>.</li>
-      <li>Back in the editor (<b>&lt; &gt;</b> on the left), open <b>appsscript.json</b>, press <b>Copy settings</b>, select everything there, paste, Save.</li>
-      <li>Open Code.gs again, choose <b>setup</b> in the list next to Run, press <b>Run</b>, and allow access. Google warns the app isn't verified (it's yours): press Advanced, then Go to the project, then Allow. It only asks to read your email and to reach this site.</li>
-      <li>Within a minute the Gmail check line above turns green.</li>
-    </ol>
-    <div class="row-btn"><a class="btn" href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">Open Google Apps Script</a><button class="btn ghost" id="copyGas" type="button">Copy script</button><button class="btn ghost" id="copyGasCfg" type="button">Copy settings</button></div>
-    <small id="gasInfo"></small>
-  </details>
-
-  <details class="setup" id="stepWa"><summary><b>3. WhatsApp from landlords (Android)</b> <span class="sst" id="sstWa"></span></summary>
-    <small>The free app MacroDroid passes WhatsApp notifications from landlords to this site. WhatsApp itself is never touched. Chats with saved contacts (friends) are ignored; only unsaved numbers and contacts whose name starts with "Huis" count. Tip: save a landlord as "Huis Jan Sonjestraat" and their messages land on that listing automatically.</small>
-    <ol>
-      <li>Install <a href="https://play.google.com/store/apps/details?id=com.arlosoft.macrodroid" target="_blank" rel="noopener">MacroDroid</a> and open it.</li>
-      <li>Add Macro. <b>Trigger</b>: search "Notification", pick <b>Notification Received</b>, select app <b>WhatsApp</b>, any content. Allow notification access when asked.</li>
-      <li><b>Action</b>: search "HTTP", pick <b>HTTP Request</b>. Method <b>POST</b>. URL: press <b>Copy address</b> and paste.</li>
-      <li>Headers: add one. Name <code>x-inbox-token</code>, value: press <b>Copy key</b> and paste.</li>
-      <li>Body / content: type <b>application/json</b>; press <b>Copy body</b> and paste.</li>
-      <li>Save the macro (name it "Kamernet"). In Android Settings, Apps, MacroDroid, Battery: <b>Unrestricted</b>.</li>
-      <li>Test: when a landlord WhatsApps you, the WhatsApp line above shows the time. If it stays empty, open the body in MacroDroid and use its magic text button to pick <b>Notification title</b> and <b>Notification text</b> in place of the words in square brackets.</li>
-    </ol>
-    <div class="row-btn"><button class="btn ghost" id="copyUrl" type="button">Copy address</button><button class="btn ghost" id="copyKey" type="button">Copy key</button><button class="btn ghost" id="copyBody" type="button">Copy body</button></div>
-    <small id="waInfo"></small>
-  </details>
-  <small>The key above only lets a script add incoming messages. It can't read anything. Keep it to yourself anyway.</small>
 </div></dialog>
-<script type="text/plain" id="gasCode">// Kamernet Live: Gmail check. Runs every minute in your own Google account (PC can be off).
-// It looks for new Kamernet "New message" emails and hands them to Kamernet Live.
-// Read-only: it never sends, labels or deletes mail. Run "setup" once.
-const INBOX_URL = "%URL%";
-const TOKEN = "%TOKEN%";
 
-function setup() {
-  ScriptApp.getProjectTriggers().filter((t) => t.getHandlerFunction() === "check").forEach((t) => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger("check").timeBased().everyMinutes(1).create();
-  check();
-}
-
-function text_(part, type) {
-  if (!part) return "";
-  if (part.mimeType === type && part.body && part.body.data) {
-    const d = part.body.data;
-    return typeof d === "string" ? Utilities.newBlob(Utilities.base64DecodeWebSafe(d)).getDataAsString() : Utilities.newBlob(d).getDataAsString();
-  }
-  for (const p of part.parts || []) { const t = text_(p, type); if (t) return t; }
-  return "";
-}
-
-function check() {
-  const props = PropertiesService.getScriptProperties();
-  const seen = JSON.parse(props.getProperty("seen") || "[]");
-  const list = Gmail.Users.Messages.list("me", { q: 'from:team@mail.kamernet.nl subject:"New message" newer_than:1d', maxResults: 20 });
-  const items = [];
-  for (const m of list.messages || []) {
-    if (items.length >= 5) break;
-    if (seen.indexOf(m.id) >= 0) continue;
-    const full = Gmail.Users.Messages.get("me", m.id, { format: "full" });
-    const subject = ((full.payload.headers || []).find((h) => h.name.toLowerCase() === "subject") || {}).value || "";
-    let body = text_(full.payload, "text/plain");
-    if (!body) body = text_(full.payload, "text/html").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
-    items.push({ id: m.id, subject: subject, body: body.slice(0, 6000), date: new Date(Number(full.internalDate)).toISOString() });
-  }
-  const res = UrlFetchApp.fetch(INBOX_URL, { method: "post", contentType: "application/json", headers: { "x-inbox-token": TOKEN }, payload: JSON.stringify({ source: "gmail", items: items }), muteHttpExceptions: true });
-  if (res.getResponseCode() !== 200) return;
-  const out = JSON.parse(res.getContentText());
-  (out.handled || []).forEach((id) => seen.push(id));
-  props.setProperty("seen", JSON.stringify(seen.slice(-300)));
-}
-</script>
-<script type="text/plain" id="gasCfg">{
-  "timeZone": "Europe/Amsterdam",
-  "runtimeVersion": "V8",
-  "exceptionLogging": "STACKDRIVER",
-  "dependencies": { "enabledAdvancedServices": [{ "userSymbol": "Gmail", "serviceId": "gmail", "version": "v1" }] },
-  "oauthScopes": [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/script.external_request",
-    "https://www.googleapis.com/auth/script.scriptapp"
-  ]
-}
-</script>
-
+<dialog id="addDlg" aria-labelledby="addTitle"><div class="dlg">
+  <div class="qhead"><h3 id="addTitle">Add a place</h3><button class="btn ghost small" id="addClose" type="button">Close</button></div>
+  <small>For a place you found somewhere else (Facebook, a friend, a direct email). It gets a normal card: messages, viewing, deal and signing all work the same.</small>
+  <div class="grid2">
+    <label>Street<input id="apStreet" autocomplete="off"></label>
+    <label>City<input id="apCity" autocomplete="off"></label>
+    <label>Rent per month (€, total)<input id="apPrice" inputmode="decimal"></label>
+    <label>Type<select id="apKind"><option value="apartment">Apartment</option><option value="room">Room</option><option value="studio">Studio</option></select></label>
+    <label>People allowed<input id="apPeople" inputmode="numeric" placeholder="2"></label>
+    <label>Size (m²)<input id="apSize" inputmode="decimal"></label>
+    <label>Available from<input id="apFrom" type="date"></label>
+    <label>Where things stand<select id="apStage"><option value="replied">We're in contact</option><option value="applied">I wrote to them</option><option value="booked">Viewing booked</option><option value="viewed">I've seen it</option><option value="offer">They offered it to me</option></select></label>
+    <label>Link to the ad (optional)<input id="apUrl" inputmode="url" placeholder="https://"></label>
+  </div>
+  <h4 class="lbl">Landlord (optional, needed for Send for me and WhatsApp)</h4>
+  <div class="contact"><label>Name<input id="apCName"></label><label>Email<input id="apCEmail" inputmode="email"></label><label>Phone (WhatsApp)<input id="apCPhone" inputmode="tel"></label></div>
+  <label class="lbl">Notes (what the ad or the landlord said)<textarea id="apNotes" style="min-height:80px"></textarea></label>
+  <div class="row-btn"><button class="btn" id="apSave" type="button">Add it</button></div>
+  <small id="apInfo"></small>
+</div></dialog>
 
 <script>
 // ---- Settings (public values only; the passcode is typed in the browser and never stored in this file) ----
@@ -458,6 +412,8 @@ const S = Object.assign({
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
 let pass = store.get("kn_pass") || "";
 let statuses = {};
+let deals = {}, contacts = {}; // listing id -> deal after a viewing (terms, checks, contract, payments, signing) / landlord contact
+let focusId = null;            // a push or the agenda opened one listing: show only that card
 let threads = {}; // listing id -> {n, last_dir, last_at, last_body, last_channel} for listings that have messages
 const stOf = (id) => statuses[id] || {};
 const stageOf = (id) => { const x = stOf(id), sg = x.stage || "none"; return sg === "booked" && x.viewing_at && Date.parse(x.viewing_at) < Date.now() ? "viewed" : sg; };
@@ -481,7 +437,7 @@ function persist(){ store.set("kn_state", JSON.stringify(S)); }
 // ---- Supabase calls ----
 function lockOut(msg){
   pass = ""; store.set("kn_pass", ""); statuses = {};
-  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true; $("phonebtn").hidden = true; $("mebtn").hidden = true; $("askbtn").hidden = true;
+  $("app").hidden = true; $("lock").hidden = false; $("lockbtn").hidden = true; $("phonebtn").hidden = true; $("addbtn").hidden = true; $("mebtn").hidden = true; $("askbtn").hidden = true;
   $("gatemsg").textContent = msg || "Private tool. Enter the passcode to open it.";
 }
 // All data goes through the passcode-protected "data" function; nothing is publicly readable.
@@ -502,7 +458,11 @@ async function fn(name, opts = {}){
 
 // ---- Query building ----
 function filters(){
-  const p = ["gone_at=is.null", "dup_of=is.null"]; // reposts of an older live ad are hidden (dup_of)
+  if (focusId) return [`id=eq.${focusId}`];
+  // reposts of an older live ad are hidden (dup_of). Ads taken off Kamernet are hidden too, unless you are still in contact about them.
+  const p = ["dup_of=is.null"];
+  const activeIds = Object.keys(statuses).filter((id) => !isClosed(id));
+  p.push(activeIds.length ? `or=(gone_at.is.null,id.in.(${activeIds.join(",")}))` : "gone_at=is.null");
   const pick = (m, v) => Object.keys(m).filter((k) => m[k] === v);
   const incl = (col, m, f = (x) => x) => { const a = pick(m, "in").map(f); if (a.length) p.push(`${col}=in.(${a.join(",")})`); };
   const excl = (col, m, f = (x) => x) => { const a = pick(m, "out").map(f); if (a.length) p.push(`${col}=not.in.(${a.join(",")})`); };
@@ -559,11 +519,12 @@ function filters(){
     const pool = [...new Set([...known, ...Object.keys(threads)])];
     if (S.msgf === "move" || S.msgf === "verdict"){ const ids = pool.filter(yourMove); p.push(`id=in.(${ids.length ? ids.join(",") : 0})`); }
     if (S.msgf === "waiting"){ const ids = known.filter(waitingOn); p.push(`id=in.(${ids.length ? ids.join(",") : 0})`); }
+    if (S.msgf === "mine"){ const ids = known.filter((id) => !isClosed(id) && stageOf(id) !== "none"); p.push(`id=in.(${ids.length ? ids.join(",") : 0})`); }
   }
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
 }
-const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,posted:raw->>publishDate,pc:facts->>postcode";
+const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode";
 function qs(extra){ return [...filters(), `order=${S.sort}`, ...extra].join("&"); }
 
 // ---- Cards ----
@@ -618,7 +579,8 @@ function card(r){
     <div class="price"><div class="pp">${ppOf(r) != null ? eur(ppOf(r)) : eur(r.price)}<small> ${ppOf(r) != null ? "/pp" : "total"}</small></div>
       <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${divisor(r)}${divisor(r) < r.people ? ` (up to ${r.people})` : ""}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
-      ${r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
+      ${r.source === "manual" ? '<span class="state on">Added by you</span>' : r.distilled_at ? `<span class="state on" title="Read by ${esc(r.distill_model || "AI")} on ${esc(r.distilled_at.slice(0,10))}">Distilled</span>` : '<span class="state off">Not distilled</span>'}
+      ${r.gone_at && r.source !== "manual" ? '<span class="badge" title="The ad is no longer on Kamernet. You are still in contact, so the card stays.">Off Kamernet</span>' : ""}
       ${yourMove(String(r.id)) ? '<span class="badge warn">Your move</span>' : ""}
       ${x.viewing_at && sg === "booked" ? `<span class="badge good">Viewing ${esc(when(x.viewing_at))}</span>` : ""}
       ${r.reg === "unknown" ? `<span class="badge ${S.regF.unknown ? "f-" + S.regF.unknown : ""}" data-reg="unknown" role="button" tabindex="0" title="Tap to filter on this">Registration unknown</span>` : ""}
@@ -628,6 +590,7 @@ function card(r){
     ${flags.length ? `<div class="flags">⚠ ${esc(flags.join(" · "))}</div>` : ""}
     ${threads[r.id] ? `<div class="lastmsg"><span class="nr" data-nr="${r.id}" ${needsReply(String(r.id)) ? "" : "hidden"}>Needs reply</span> ${threads[r.id].last_dir === "in" ? "Landlord" : "Me"} · ${esc(CHAN[threads[r.id].last_channel] || threads[r.id].last_channel)} · ${esc(when(threads[r.id].last_at))}: ${esc(threads[r.id].last_body)}</div>` : ""}
     ${verdictBlock(r.id)}
+    ${dealBlock(r)}
     ${draftBlock(r.id)}
     <details class="open" data-open="${r.id}"${openSet.has(String(r.id)) ? " open" : ""}>
     <summary><span class="oc">Open listing ▾</span><span class="cc">Close ▴</span>${standPills(r.id)}</summary>
@@ -637,15 +600,17 @@ function card(r){
       <div class="thread" data-id="${r.id}"><div class="msgs">Loading…</div>
         <textarea class="tbody" rows="3" placeholder="Write, paste or draft a message here…"></textarea>
         <div class="trow"><select class="tdir"><option value="out">I sent this</option><option value="in">They wrote this</option></select>
-          <select class="tchan">${Object.entries(CHAN).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+          <select class="tchan">${Object.entries(CHAN).map(([k, v]) => `<option value="${k}" ${(threads[r.id]?.last_channel || (r.source === "manual" ? (contacts[r.id]?.email ? "email" : "whatsapp") : "kamernet")) === k ? "selected" : ""}>${v}</option>`).join("")}</select>
           <button class="btn ghost tlog" type="button">Add to thread</button><button class="btn ghost tdraft" type="button">Draft reply</button><button class="btn ghost tgo" type="button">Copy and open chat</button></div>
         <div class="tinfo msg"></div></div></details>
     <details class="more" data-full="${r.id}"><summary>Full ad text</summary><div class="full">Loading…</div></details>
     ${standEditor(r.id)}
+    ${contactBlock(r.id)}
     <div class="actions">
-      <button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>
-      <button class="btn ghost small wrong" type="button" data-id="${r.id}" data-street="${esc(r.street)}">Something's wrong</button>
-      <a href="${esc(r.url)}" target="_blank" rel="noopener">Open on Kamernet ↗</a></div>
+      ${r.source === "kamernet" && !r.gone_at ? `<button class="btn ghost apply" type="button" data-id="${r.id}">Apply Assist</button>` : ""}
+      ${dealStarted(r.id) ? "" : `<button class="btn ghost small dstart" type="button" data-id="${r.id}">They offered it: start the deal</button>`}
+      <button class="btn ghost small wrong" type="button" data-id="${r.id}" data-street="${esc(r.street)}">Tell Claude about this</button>
+      ${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${r.source === "manual" ? "Open the ad ↗" : "Open on Kamernet ↗"}</a>` : ""}</div>
     </div></details>
   </article>`;
 }
@@ -691,7 +656,7 @@ function renderPanel(){
   tri($("regs"), [["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "regF");
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
   chips($("cheap"), [["hide","Hide under €250 (typos)"],["show","Show them"]], "cheap", (v) => { S.cheap = v; }, false);
-  chips($("msgf"), [["any","Everything"],["move","Your move"],["waiting","Waiting on them"],["reply","Needs my reply"],["draft","Has a draft"],["has","Has messages"]], "msgf", (v) => { S.msgf = v; }, false);
+  chips($("msgf"), [["any","Everything"],["mine","My leads"],["move","Your move"],["waiting","Waiting on them"],["reply","Needs my reply"],["draft","Has a draft"],["has","Has messages"]], "msgf", (v) => { S.msgf = v; }, false);
   tri($("stagef"), STAGES.map((x) => [x, STAGE_LABEL[x]]), "stageF");
   tri($("opf"), [...OPINIONS, ["unset", "No opinion yet"]], "opF");
   chips($("closedf"), [["hide","Hide closed"],["only","Only closed"],["all","Show all"]], "closedF", (v) => { S.closedF = v; }, false);
@@ -770,9 +735,13 @@ async function boot(){
   await loadStatuses();
   await loadThreads();
   renderPanel();
+  await loadDeals();
+  if (hashId()) setFocus(hashId(), true); // a phone alert opened one listing
+  renderPanel();
   await Promise.all([load(true), headline(), loadTags(), loadDrafts(), loadInbox()]);
+  if (focusId) $("fbar").scrollIntoView({ block: "start" });
 }
-function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; $("phonebtn").hidden = false; $("mebtn").hidden = false; $("askbtn").hidden = false; boot().catch(() => {}); }
+function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; $("phonebtn").hidden = false; $("addbtn").hidden = false; $("mebtn").hidden = false; $("askbtn").hidden = false; boot().catch(() => {}); }
 $("passbtn").onclick = async () => {
   const v = $("pass").value.trim(); if (!v) return;
   pass = v; store.set("kn_pass", v); $("pass").value = "";
@@ -857,7 +826,7 @@ $("selmore").onclick = async () => {
   catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't select them all: " + e.message; }
 };
 const origRender = renderList;
-renderList = function(){ origRender(); syncPicks(); updateVerdictBar(); };
+renderList = function(){ origRender(); syncPicks(); updateVerdictBar(); renderAgenda(); };
 
 async function draftFor(ids){
   if (!pass){ $("msg").className = "msg err"; $("msg").textContent = "Enter the passcode first."; return; }
@@ -1040,19 +1009,39 @@ $("askSend").onclick = async () => {
 
 // ---- Drafts live inside each listing's card ----
 const unsent = () => drafts.filter((d) => d.send_status !== "sent");
-const readyOnes = () => drafts.filter((d) => d.send_status === "approved");
 const draftEdits = {}; // unsaved text by application id, kept when the list redraws
-const viaWhatsApp = (d) => d.kind === "reply" && threads[String(d.listing_id)]?.last_channel === "whatsapp";
-const sendUrl = (d) => viaWhatsApp(d) ? "" : d.kind === "reply" && d.conv_id ? `https://kamernet.nl/en/my-messages/default/conversation/${d.conv_id}` : `https://kamernet.nl/en/react-to-listing/${d.listing_id}`;
+// Which channel a draft goes out on: the channel the landlord last used; a first message goes on Kamernet
+// (a place you added yourself: email if you saved their address, else WhatsApp).
+const listingOf = (id) => loaded.find((x) => String(x.id) === String(id));
+function chanOf(d){
+  const last = threads[String(d.listing_id)]?.last_channel, c = contacts[d.listing_id] || {};
+  if (d.kind === "reply" && ["whatsapp", "email"].includes(last)) return last;
+  if (listingOf(d.listing_id)?.source === "manual" || (d.kind === "reply" && !d.conv_id && last !== "kamernet")) return c.email ? "email" : c.phone ? "whatsapp" : "other";
+  return "kamernet";
+}
+const waUrl = (phone, text) => `https://wa.me/${String(phone).replace(/\D/g, "").replace(/^00/, "").replace(/^0(?=6)/, "31")}?text=${encodeURIComponent(text)}`;
+const kamernetUrl = (d) => d.kind === "reply" && d.conv_id ? `https://kamernet.nl/en/my-messages/default/conversation/${d.conv_id}` : `https://kamernet.nl/en/react-to-listing/${d.listing_id}`;
+const WHY = {
+  kamernet: "Kamernet's rules forbid sending for you, so you paste and send it yourself.",
+  whatsapp: "WhatsApp can ban your own number if a robot sends from it, so you send it yourself.",
+};
+function sendButtons(d){
+  const ch = chanOf(d), c = contacts[d.listing_id] || {};
+  if (["queued", "sending"].includes(d.send_status)) return `<div class="trow"><b>Sending by email to ${esc(c.email || "the landlord")}…</b><button class="btn ghost small dunq" type="button">Cancel</button><small class="dst"></small></div><small class="why">It goes out from your Gmail within a minute and then shows in the Messages.</small>`;
+  const fail = d.send_status === "failed" ? `<div class="flags">Couldn't send it: ${esc(d.send_error || "unknown error")}. Try again or copy it.</div>` : "";
+  if (ch === "email") return `${fail}<div class="trow"><button class="btn dmail" type="button">Send for me</button><button class="btn ghost dgo" type="button" data-ch="email">Copy and open email</button><button class="btn ghost ddone" type="button" data-ch="email">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div><small class="why">Send for me emails ${esc(c.email)} from your Gmail, as a reply in your thread with them.</small>`;
+  if (ch === "whatsapp") return `<div class="trow"><button class="btn ghost dgo" type="button" data-ch="whatsapp">${c.phone ? "Copy and open WhatsApp" : "Copy (no number saved)"}</button><button class="btn ghost ddone" type="button" data-ch="whatsapp">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div><small class="why">${WHY.whatsapp}${c.phone ? "" : " Save their number under Landlord contact and this opens their chat."}</small>`;
+  if (ch === "other") return `<div class="trow"><button class="btn ghost dgo" type="button" data-ch="other">Copy</button><button class="btn ghost ddone" type="button" data-ch="other">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div><small class="why">Save the landlord's email or phone under Landlord contact to get Send for me or the WhatsApp button.</small>`;
+  return `<div class="trow"><button class="btn ghost dgo" type="button" data-ch="kamernet">Copy and open Kamernet</button><button class="btn ghost ddone" type="button" data-ch="kamernet">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div><small class="why">${WHY.kamernet}</small>`;
+}
 function draftBlock(listingId){
   const d = unsent().find((x) => x.listing_id === listingId); if (!d) return "";
-  const ready = d.send_status === "approved";
-  return `<div class="ditem${ready ? " ready" : ""}" data-aid="${d.id}" data-lid="${d.listing_id}">
-      <div class="dtop"><b>${d.kind === "reply" ? "Draft reply to the landlord" : "Draft first message"}</b><label class="rdy"><input type="checkbox" class="dready1" ${ready ? "checked" : ""}> Ready to send</label></div>
+  return `<div class="ditem" data-aid="${d.id}" data-lid="${d.listing_id}">
+      <div class="dtop"><b>${d.kind === "reply" ? "Draft reply to the landlord" : "Draft first message"}</b><small>${esc({ kamernet: "on Kamernet", whatsapp: "on WhatsApp", email: "by email", other: "" }[chanOf(d)])}</small></div>
       ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
       ${(d.notes || []).length ? `<div class="decide"><b>You decide</b>${d.notes.map((n) => `<label><span>${esc(n)}</span><input class="dans" data-q="${esc(n)}" placeholder="Your answer"></label>`).join("")}</div>` : ""}
       <textarea class="dtext" aria-label="Draft message">${esc(draftEdits[d.id] ?? d.draft)}</textarea>
-      <div class="trow"><button class="btn ghost dgo" type="button">${viaWhatsApp(d) ? "Copy (send it on WhatsApp)" : `Copy and open ${d.kind === "reply" ? "the chat" : "Kamernet"}`}</button><button class="btn ghost ddone" type="button">I sent it</button><button class="btn ghost ddel" type="button">Discard</button><small class="dst"></small></div>
+      ${sendButtons(d)}
       <div class="fix"><input class="dnote" placeholder="Change it: e.g. shorter, say I can come Saturday, don't mention Klorane">
         <div class="trow"><label class="rdy"><input type="checkbox" class="drem" checked> Remember my answers</label><label class="rdy"><input type="checkbox" class="dalw"> Always do this</label><button class="btn ghost small dredo" type="button">Redo</button></div></div>
     </div>`;
@@ -1065,21 +1054,13 @@ async function loadDrafts(){
 function renderDrafts(){
   const open = unsent();
   $("drafts").hidden = open.length === 0;
-  $("dcount").textContent = `Drafts: ${open.length} · ${readyOnes().length} ready to send`;
-  $("dready").checked = open.length > 0 && readyOnes().length === open.length;
+  const sending = open.filter((d) => ["queued", "sending"].includes(d.send_status)).length;
+  $("dcount").textContent = `Drafts waiting for you: ${open.length - sending}${sending ? ` · ${sending} email${sending === 1 ? "" : "s"} going out` : ""}`;
   renderList();
+  clearTimeout(renderDrafts.t); // while an email is going out, check again so the card shows it as sent
+  if (sending) renderDrafts.t = setTimeout(async () => { await loadDrafts(); await loadThreads(); renderList(); }, 20000);
 }
-async function setReady(ids, ready){
-  try { await fn("apply", { method: "POST", body: JSON.stringify({ action: "ready", application_ids: ids, ready }) }); }
-  catch (e) { $("dinfo").textContent = "Couldn't save: " + e.message; }
-  await loadDrafts();
-}
-$("dready").onchange = (e) => setReady(unsent().map((d) => d.id), e.target.checked);
 $("dshow").onclick = () => { S.msgf = "draft"; persist(); renderPanel(); load(true); };
-$("list").addEventListener("change", (e) => {
-  const c = e.target.closest(".dready1"); if (!c) return;
-  setReady([Number(c.closest(".ditem").dataset.aid)], c.checked);
-});
 const saveTimers = {};
 $("list").addEventListener("input", (e) => {
   const t = e.target.closest(".dtext"); if (!t) return;
@@ -1094,13 +1075,31 @@ $("list").addEventListener("click", async (e) => {
   const it = e.target.closest(".ditem"); if (!it) return;
   const id = Number(it.dataset.aid), lid = Number(it.dataset.lid), ta = it.querySelector(".dtext"), st = it.querySelector(".dst");
   if (e.target.closest(".dgo")){
+    const ch = e.target.closest(".dgo").dataset.ch, dd = drafts.find((x) => x.id === id), c = contacts[lid] || {};
     const p = navigator.clipboard?.writeText(ta.value);   // copy and open run inside this tap, so browsers allow both
-    const dd = drafts.find((x) => x.id === id), u = dd ? sendUrl(dd) : `https://kamernet.nl/en/react-to-listing/${lid}`; if (u) window.open(u, "_blank", "noopener");
-    if (p) p.then(() => { st.textContent = "Copied. Paste it in Kamernet, send it, then press “I sent it”."; }).catch(() => ta.select()); else ta.select();
+    const u = ch === "whatsapp" ? (c.phone ? waUrl(c.phone, ta.value) : "")
+      : ch === "email" ? `mailto:${encodeURIComponent(c.email || "")}?subject=${encodeURIComponent("Re: " + (listingOf(lid)?.street || "the room"))}&body=${encodeURIComponent(ta.value)}`
+      : ch === "kamernet" ? kamernetUrl(dd || { listing_id: lid }) : "";
+    if (u) window.open(u, ch === "email" ? "_self" : "_blank", "noopener");
+    const where = { whatsapp: "WhatsApp", email: "your email", kamernet: "Kamernet", other: "where you are writing to them" }[ch];
+    if (p) p.then(() => { st.textContent = `Copied. Paste it in ${where}, send it, then press “I sent it”.`; }).catch(() => ta.select()); else ta.select();
+  } else if (e.target.closest(".dmail")){
+    const c = contacts[lid] || {};
+    if (!confirm(`Send this email to ${c.email} now, from your Gmail?`)) return;
+    st.textContent = "Sending…";
+    try {
+      const r = await fn("deal", { method: "POST", body: JSON.stringify({ action: "send_email", application_id: id, draft: ta.value }) });
+      delete draftEdits[id];
+      if (!r.script_ready) $("dinfo").textContent = "Queued. The Gmail connection isn't running yet, so it goes out as soon as it is (see Status).";
+      await loadDrafts();
+    } catch (err) { st.textContent = "Couldn't send: " + err.message; }
+  } else if (e.target.closest(".dunq")){
+    try { await fn("deal", { method: "POST", body: JSON.stringify({ action: "unqueue", application_id: id }) }); await loadDrafts(); }
+    catch (err) { st.textContent = "Couldn't cancel: " + err.message; }
   } else if (e.target.closest(".ddone")){
     try {
       await fn("apply", { method: "POST", body: JSON.stringify({ action: "save", application_id: id, draft: ta.value }) });
-      await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: id }) });
+      await fn("apply", { method: "POST", body: JSON.stringify({ action: "sent", application_id: id, channel: e.target.closest(".ddone").dataset.ch }) });
       statuses[lid] = { ...stOf(lid), stage: STAGES.indexOf(stOf(lid).stage || "none") < 1 ? "applied" : stOf(lid).stage };
       delete draftEdits[id];
       await Promise.all([loadDrafts(), loadThreads()]); refreshEligible();
@@ -1120,15 +1119,6 @@ $("list").addEventListener("click", async (e) => {
     catch (err) { st.textContent = "Couldn't discard: " + err.message; }
   }
 });
-$("dinstr").onclick = () => {
-  const r = readyOnes();
-  if (!r.length){ $("dinfo").textContent = "Tick “Ready to send” on at least one draft first."; return; }
-  const name = (d) => { const l = loaded.find((x) => x.id === d.listing_id); return l ? `${l.street}, ${l.city}` : `listing ${d.listing_id}`; };
-  const lines = r.map((d, i) => `${i + 1}. ${viaWhatsApp(d) ? "REPLY ON WHATSAPP (the landlord wrote there)" : d.kind === "reply" ? "REPLY" : "FIRST MESSAGE"} · ${name(d)}${sendUrl(d) ? " · open " + sendUrl(d) : ""} (listing ${d.listing_id}, application ${d.id})`).join("\n");
-  const txt = `Please send these ${r.length} Kamernet application${r.length === 1 ? "" : "s"} through my Chrome, one at a time, with a normal gap of 10 to 30 seconds. Use my final text exactly as saved in the Supabase table "applications" (project sldfjyrpopypzbmhvbkq, send_status = 'approved', application ids: ${r.map((d) => d.id).join(", ")}). For each one: open its link below (a first message goes in the listing's reply form, a reply goes in the existing Kamernet chat), paste the text, for a first message set the number of people moving in (1, or 2 if the listing allows two), send it, then mark it sent (send_status 'sent', sent_at now, listing status 'applied', and add it to the message thread). Stop at once on any error, captcha or "Service Unavailable" and tell me.\n\n${lines}`;
-  const p = navigator.clipboard?.writeText(txt);
-  if (p) p.then(() => { $("dinfo").textContent = `Copied the instruction for ${r.length}. Paste it to Claude to send them.`; }).catch(() => { $("dinfo").textContent = "Couldn't copy automatically."; });
-};
 $("list").addEventListener("toggle", async (e) => {
   const d = e.target; if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.full || d.dataset.loaded) return;
   d.dataset.loaded = "1";
@@ -1175,11 +1165,14 @@ $("list").addEventListener("click", async (e) => {
       info.textContent = `Draft ready (nothing is sent). Edit it, press “Copy and open chat”, send it there, then “Add to thread”.${r.notes?.length ? " Note: " + r.notes.join(" · ") : ""}`;
     } catch (err) { info.textContent = "Couldn't draft: " + err.message; }
   } else if (e.target.closest(".tgo")){
-    const url = box.dataset.convUrl || (box.dataset.conv ? `https://kamernet.nl/en/my-messages/default/conversation/${box.dataset.conv}` : "");
     if (!ta.value.trim()){ info.textContent = "Draft or write a message first."; return; }
+    const ch = box.querySelector(".tchan").value, c = contacts[id] || {};
+    const url = ch === "whatsapp" ? (c.phone ? waUrl(c.phone, ta.value) : "")
+      : ch === "email" ? (c.email ? `mailto:${encodeURIComponent(c.email)}?body=${encodeURIComponent(ta.value)}` : "")
+      : box.dataset.convUrl || (box.dataset.conv ? `https://kamernet.nl/en/my-messages/default/conversation/${box.dataset.conv}` : "");
     const p = navigator.clipboard?.writeText(ta.value);
-    if (url) window.open(url, "_blank", "noopener");
-    if (p) p.then(() => { info.textContent = url ? "Copied. Paste it in the Kamernet chat and send it, then press “Add to thread”." : "Copied. No Kamernet chat is known for this listing, paste it wherever you are writing."; }).catch(() => ta.select()); else ta.select();
+    if (url) window.open(url, ch === "email" ? "_self" : "_blank", "noopener");
+    if (p) p.then(() => { info.textContent = url ? "Copied. Paste it there and send it, then press “Add to thread”." : "Copied. No chat is known for this channel yet (save the landlord's contact below), paste it wherever you are writing."; }).catch(() => ta.select()); else ta.select();
   }
 });
 $("distill").onclick = async () => {
@@ -1199,35 +1192,40 @@ $("distill").onclick = async () => {
   finally { setDistillBtn(); }
 };
 
-// ---- Alerts: new landlord messages from Gmail (a script in your Google account) and WhatsApp (MacroDroid),
-//      pushed to this phone by the "inbox" function. The key shown here can only add incoming messages. ----
+// ---- Status: is the automation that works for you running? Plus messages that need "which listing?".
+//      Setting things up happens in a Claude chat; this panel only shows whether they work. ----
 let inbox = null;
-const ago = (t) => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
-const gmailOk = () => !!inbox?.health.gmail_ping && Date.now() - Date.parse(inbox.health.gmail_ping) < 15 * 60000;
+const ago = (t) => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : Math.round(m / 1440) === 1 ? "yesterday" : `${Math.round(m / 1440)} days ago`; };
+const fresh = (t, min) => !!t && Date.now() - Date.parse(t) < min * 60000;
+const gmailOk = () => fresh(inbox?.health.gmail_ping, 15);
 async function loadInbox(){
   if (!pass) return;
   try { inbox = await fn("inbox?setup=1"); } catch { return; }
-  const n = inbox.open.length, stopped = !!inbox.health.gmail_ping && !gmailOk();
-  $("ibar").hidden = !n && !stopped;
-  $("itext").textContent = n ? `${n} new message${n === 1 ? " needs" : "s need"} a listing` : "Alerts: the Gmail check has stopped running";
+  const n = inbox.open.length, h = inbox.health;
+  const broken = (!!h.gmail_ping && !gmailOk()) || !fresh(h.new_check?.at, 90) || (!!h.remind_last_run && !fresh(h.remind_last_run, 30));
+  $("ibar").hidden = !n && !broken;
+  $("itext").textContent = n ? `${n} new message${n === 1 ? " needs" : "s need"} a listing` : "Something in the automation has stopped. See Status.";
   if ($("phoneDlg").open) drawInbox();
 }
 async function thisPhoneSub(){ try { return await (await navigator.serviceWorker?.getRegistration())?.pushManager.getSubscription(); } catch { return null; } }
 async function drawInbox(){
-  if (!inbox){ $("health").textContent = "Couldn't load the alert status."; return; }
+  if (!inbox){ $("health").textContent = "Couldn't load the status."; return; }
   const h = inbox.health, line = (cls, txt) => `<div class="hl"><span class="dot ${cls}"></span><span>${txt}</span></div>`;
+  const notYet = "not connected yet (Claude sets this up in a chat)";
   const mine = await thisPhoneSub();
   $("health").innerHTML = [
-    inbox.push_devices ? line("ok", `Alerts on for ${inbox.push_devices} device${inbox.push_devices === 1 ? "" : "s"}${mine ? " (this one too)" : ""}${h.last_push ? ` · last alert ${ago(h.last_push)}` : ""}`) : line("warn", "No phone has alerts on yet (step 1)"),
-    h.gmail_ping ? (gmailOk() ? line("ok", `Gmail check running · last run ${ago(h.gmail_ping)}`) : line("bad", `Gmail check stopped · last run ${ago(h.gmail_ping)}. Open step 2 and run setup again.`)) : line("warn", "Gmail check not set up yet (step 2)"),
-    h.phone_last ? line("ok", `WhatsApp forwarding works · last notification ${ago(h.phone_last)}`) : line("warn", "WhatsApp: nothing received from the phone yet (step 3)"),
+    h.new_check?.at ? line(fresh(h.new_check.at, 90) && h.new_check.ok !== false ? "ok" : "bad", `New listings from Kamernet: checked ${ago(h.new_check.at)}${h.last_new_listing ? ` · newest saved ${ago(h.last_new_listing)}` : ""}`) : line("warn", "New listings: no check has run yet"),
+    h.sweep?.at ? line(h.sweep.ok !== false ? "ok" : "bad", `Nightly clean-up of removed ads: ran ${ago(h.sweep.at)}`) : line("bad", "Nightly clean-up of removed ads hasn't run in the last day"),
+    h.gmail_ping ? (gmailOk() ? line("ok", `Kamernet messages and landlord emails (Gmail): checked ${ago(h.gmail_ping)}`) : line("bad", `Gmail check stopped: last run ${ago(h.gmail_ping)}`)) : line("warn", `Kamernet messages and landlord emails (Gmail): ${notYet}`),
+    Number(h.gmail_version || 0) >= 2 && gmailOk() ? line(h.failed_emails ? "bad" : "ok", `Send for me (email): ready${h.queued_emails ? ` · ${h.queued_emails} going out` : ""}${h.failed_emails ? ` · ${h.failed_emails} failed (see the cards)` : ""}`) : line("warn", `Send for me (email): ${h.gmail_ping ? "needs the newer Gmail connection (Claude updates it in a chat)" : notYet}${h.queued_emails ? ` · ${h.queued_emails} waiting` : ""}`),
+    h.phone_last ? line("ok", `WhatsApp from landlords (your phone): last one ${ago(h.phone_last)}`) : line("warn", `WhatsApp from landlords (your phone): ${notYet}`),
+    inbox.push_devices ? line("ok", `Alerts on ${inbox.push_devices} phone${inbox.push_devices === 1 ? "" : "s"}${mine ? " (this one too)" : " (not this one)"}${h.last_push ? ` · last alert ${ago(h.last_push)}` : ""}`) : line("warn", "Alerts: no phone has them on yet. Press Alerts on this phone below."),
+    h.remind_last_run ? line(fresh(h.remind_last_run, 30) ? "ok" : "bad", `Viewing and payment reminders: checked ${ago(h.remind_last_run)}`) : line("warn", "Viewing and payment reminders: not run yet"),
+    h.ask_last_error ? line("bad", `Tell Claude: last error ${esc(String(h.ask_last_error).slice(0, 120))}`) : line("ok", `Tell Claude: working${h.ask_last_run ? " · last request " + ago(String(h.ask_last_run).slice(0, 24)) : ""}`),
     h.push_error && /browser/.test(h.push_error) && (!h.last_push || Date.parse(h.push_error.slice(0, 24)) > Date.parse(h.last_push)) ? line("bad", `Last alert failed: ${esc(h.push_error.slice(25, 160))}`) : "",
   ].join("");
-  const done = { Push: inbox.push_devices > 0, Gmail: gmailOk(), Wa: !!h.phone_last };
-  for (const k in done) $("sst" + k).textContent = done[k] ? "✓ done" : "to do";
-  const firstTodo = Object.keys(done).find((k) => !done[k]);
-  if (firstTodo && !document.querySelector("details.setup[open]")) $("step" + firstTodo).open = true;
-  const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
+  $("pushOn").textContent = mine ? "Alerts are on for this phone" : "Alerts on this phone";
+  const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : i.source === "email" ? `Email from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
   $("inboxOpen").innerHTML = inbox.open.length ? `<h4 class="lbl">Which listing is this about?</h4>${inbox.open.map((i) => `<div class="ib" data-iid="${i.id}">
       <div><b>${src(i)}</b> · ${esc(when(i.created_at))}${i.summary ? " · " + esc(i.summary) : ""}</div>
       ${i.state === "error" ? `<div>Couldn't read it automatically (${esc((i.error || "").slice(0, 80))}). Picking the listing tries again.</div>` : ""}
@@ -1285,17 +1283,257 @@ $("pushTest").onclick = async () => {
     loadInbox();
   } catch (err) { $("pushInfo").textContent = "Couldn't send: " + err.message; }
 };
-function copyText(txt, el, what){
-  const p = navigator.clipboard?.writeText(txt);
-  if (p) p.then(() => { el.textContent = `Copied ${what}. Paste it where the step says.`; }).catch(() => { el.textContent = "Couldn't copy automatically."; });
-  else el.textContent = "Couldn't copy automatically.";
+// ---- Coming up: viewings, payments due, registration appointment, move-in (the site is the calendar) ----
+const names = {}; // listing id -> {street, city, pc}
+async function nameIds(ids){
+  const need = ids.filter((id) => !names[id] && !listingOf(id));
+  if (need.length) try { for (const r of await (await rest(`listings?select=id,street,city,pc:facts->>postcode&id=in.(${need.join(",")})`)).json()) names[r.id] = r; } catch {}
+  for (const id of ids) if (!names[id] && listingOf(id)) names[id] = listingOf(id);
 }
-const needInbox = (el) => { if (!inbox){ el.textContent = "Still loading, try again in a second."; loadInbox(); return false; } return true; };
-$("copyGas").onclick = () => { if (needInbox($("gasInfo"))) copyText($("gasCode").textContent.trim().replace("%URL%", inbox.inbox_url).replace("%TOKEN%", inbox.token) + "\n", $("gasInfo"), "the script"); };
-$("copyGasCfg").onclick = () => copyText($("gasCfg").textContent.trim() + "\n", $("gasInfo"), "the settings");
-$("copyUrl").onclick = () => { if (needInbox($("waInfo"))) copyText(inbox.inbox_url, $("waInfo"), "the address"); };
-$("copyKey").onclick = () => { if (needInbox($("waInfo"))) copyText(inbox.token, $("waInfo"), "the key"); };
-$("copyBody").onclick = () => copyText('{"source":"whatsapp","from":"[notification_title]","text":"[notification]"}', $("waInfo"), "the body");
+const dayTxt = (t) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+async function renderAgenda(){
+  const now = Date.now(), items = [];
+  for (const [id, x] of Object.entries(statuses)) {
+    if (isClosed(id) || !x.viewing_at) continue;
+    const t = Date.parse(x.viewing_at);
+    if (t > now - 2 * 3600000 && t < now + 14 * 86400000) items.push({ id, t, what: "Viewing" });
+  }
+  for (const [id, d] of Object.entries(deals)) {
+    for (const p of d.payments || []) if (p.status !== "paid" && p.due) items.push({ id, t: Date.parse(p.due + "T12:00:00"), day: true, what: `Pay €${p.amount} ${p.what}${p.status === "approved" ? "" : " (needs your Approve)"}` });
+    if (d.after?.reg_appt) items.push({ id, t: Date.parse(d.after.reg_appt), what: "Registration appointment" });
+    if (d.after?.move_in) items.push({ id, t: Date.parse(d.after.move_in + "T12:00:00"), day: true, what: "Move in" });
+  }
+  const shown = items.filter((i) => i.day ? i.t > now - 86400000 : true).sort((a, b) => a.t - b.t).slice(0, 12);
+  $("agenda").hidden = !shown.length;
+  if (!shown.length) return;
+  await nameIds([...new Set(shown.map((i) => i.id))]);
+  const views = shown.filter((i) => i.what === "Viewing");
+  $("agenda").innerHTML = `<h4>Coming up</h4>` + shown.map((i) => {
+    const l = names[i.id] || {}, clash = i.what === "Viewing" && views.some((v) => v !== i && Math.abs(v.t - i.t) < 90 * 60000);
+    return `<div class="ag${clash ? " clash" : ""}"><b>${esc(i.day ? dayTxt(i.t) : when(i.t))}</b><span>${esc(i.what)}: ${esc(l.street || "listing " + i.id)}${l.city ? ", " + esc(l.city) : ""}${clash ? " · clashes with another viewing" : ""}</span>${l.street ? `<a href="${esc(mapUrl(l))}" target="_blank" rel="noopener">Map ↗</a>` : ""}<button class="linkbtn agopen" type="button" data-id="${i.id}">Open</button></div>`;
+  }).join("");
+}
+$("agenda").addEventListener("click", (e) => { const b = e.target.closest(".agopen"); if (b) setFocus(b.dataset.id); });
+
+// ---- One listing at a time (a phone alert or the agenda opened it) ----
+function setFocus(id, noLoad){
+  focusId = id ? Number(id) : null;
+  $("fbar").hidden = !focusId;
+  if (focusId){ openSet.add(String(focusId)); const l = names[focusId] || listingOf(focusId); $("ftext").textContent = `Showing one listing${l?.street ? ": " + l.street : ""}`; }
+  if (!noLoad) load(true).then(() => { if (focusId) $("fbar").scrollIntoView({ block: "start" }); });
+}
+$("fclear").onclick = () => { history.replaceState(null, "", location.pathname + location.search); setFocus(null); };
+const hashId = () => (location.hash.match(/l=(\d+)/) || [])[1] || null;
+window.addEventListener("hashchange", () => { if (pass && hashId()) setFocus(hashId()); });
+
+// ---- Landlord contact (inside the opened card): used by Send for me (email) and Copy and open WhatsApp ----
+function contactBlock(id){
+  const c = contacts[id] || {}, dis = pass ? "" : "disabled";
+  return `<details class="more"><summary>Landlord contact${c.name || c.email || c.phone ? ": " + esc([c.name, c.email, c.phone].filter(Boolean).join(" · ")) : " (none saved)"}</summary>
+    <div class="contact" data-id="${id}" style="margin-top:6px"><label>Name<input class="cname" value="${esc(c.name || "")}" ${dis}></label><label>Email<input class="cemail" inputmode="email" value="${esc(c.email || "")}" ${dis}></label><label>Phone (WhatsApp)<input class="cphone" inputmode="tel" value="${esc(c.phone || "")}" ${dis}></label></div>
+    <div class="trow" style="margin-top:6px"><button class="btn ghost small csave" type="button" data-id="${id}" ${dis}>Save contact</button>${c.phone ? `<a href="${esc(waUrl(c.phone, ""))}" target="_blank" rel="noopener">Open WhatsApp chat ↗</a>` : ""}${c.email ? `<a href="mailto:${esc(c.email)}">Email ↗</a>` : ""}<small class="cst"></small></div>
+    <small class="why">Messages from this email address or number then land on this card by themselves.</small></details>`;
+}
+
+// ---- The deal: from "they offered it" to signed and registered. Nothing here pays or signs for you. ----
+const viewingDone = (id) => !!stOf(id).viewing_at && Date.parse(stOf(id).viewing_at) < Date.now();
+const dealStarted = (id) => !!deals[id] || ["offer", "signed"].includes(stageOf(String(id)));
+const CHECKS = [
+  ["seen", "I (or someone I trust) saw the place in person"],
+  ["landlord_id", "The landlord's name matches the contract and the bank account"],
+  ["reg_ok", "Registration (inschrijving) at this address is allowed, in writing"],
+  ["two_people", "Klorane and I are both allowed to live there"],
+  ["contract_read", "I read the contract (and the AI check) and asked about anything unclear"],
+  ["no_fee", "No agency fee is charged to me (not allowed in the Netherlands)"],
+];
+function payWarnings(id, d, p){
+  const t = d.terms || {}, ck = d.checks || {}, w = [];
+  const seen = ck.seen || viewingDone(id);
+  if (!seen) w.push("You haven't seen the place yet. Never pay before a viewing.");
+  if (!d.contract) w.push("No contract uploaded yet. Pay only against a written contract.");
+  else if (!d.contract.review) w.push("The contract hasn't been checked yet.");
+  else if (d.contract.review.verdict === "do not sign") w.push("The contract check said: do not sign.");
+  if (!ck.landlord_id) w.push("You haven't confirmed the landlord's name matches the bank account.");
+  if (p.iban && !/^NL\d{2}[A-Z]{4}\d{10}$/.test(p.iban)) w.push(/^NL/.test(p.iban) ? "This doesn't look like a valid Dutch IBAN." : "Foreign bank account: a common scam sign for Dutch rentals.");
+  if (/deposit|borg/i.test(p.what) && t.rent && p.amount > t.rent * 2) w.push(`A deposit above 2 months' rent (€${t.rent * 2}) isn't allowed for new contracts.`);
+  return w;
+}
+function dealBlock(r){
+  const id = r.id; if (!dealStarted(id)) return "";
+  const d = deals[id] || { terms: {}, checks: {}, payments: [], after: {} }, t = d.terms || {}, ck = d.checks || {}, af = d.after || {};
+  const dis = pass ? "" : "disabled", signed = !!d.signed_at, rv = d.contract?.review;
+  const autoSeen = viewingDone(id);
+  const opt = (v, cur, txt) => `<option value="${v}" ${String(cur ?? "") === v ? "selected" : ""}>${txt}</option>`;
+  const vcls = { "looks ok": "verdict-ok", "ask first": "verdict-ask", "do not sign": "verdict-no" };
+  const L = (title, arr) => (arr || []).length ? `<div><b>${title}</b><ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+  const pays = (d.payments || []).map((p) => {
+    const w = payWarnings(id, d, p);
+    const head = `€${Number(p.amount).toLocaleString("en-GB")} to ${esc(p.to_name || "the landlord")} for ${esc(p.what)}${p.due ? ` · due ${esc(dayTxt(p.due + "T12:00:00"))}` : ""}`;
+    if (p.status === "paid") return `<div class="pay paid" data-pid="${p.pid}"><div>✓ Paid ${head}${p.paid_on ? " on " + esc(dayTxt(p.paid_on + "T12:00:00")) : ""}</div><div class="trow"><button class="linkbtn pundo" type="button">Not paid after all</button></div></div>`;
+    if (p.status === "approved") return `<div class="pay approved" data-pid="${p.pid}"><div class="q">Approved: pay ${head}</div>
+      <div class="trow">${p.iban ? `<button class="btn ghost small cp" type="button" data-v="${esc(p.iban)}">Copy IBAN ${esc(p.iban)}</button>` : ""}<button class="btn ghost small cp" type="button" data-v="${esc(String(p.amount))}">Copy amount</button>${p.reference ? `<button class="btn ghost small cp" type="button" data-v="${esc(p.reference)}">Copy reference</button>` : ""}${p.to_name ? `<button class="btn ghost small cp" type="button" data-v="${esc(p.to_name)}">Copy name</button>` : ""}</div>
+      <small class="why">Pay it in your bank app (Kamernet Live can't move money), then press I paid it.</small>
+      <div class="trow"><button class="btn small ppaid" type="button">I paid it</button><button class="linkbtn pundo" type="button">Take back the approval</button></div></div>`;
+    return `<div class="pay" data-pid="${p.pid}"><div class="q">Pay ${head}?</div>${w.length ? `<ul class="warns">${w.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<small class="why">The checks above look fine.</small>`}
+      <div class="trow"><button class="btn small pappr" type="button" ${dis}>Approve</button><button class="btn ghost small pdel" type="button">Remove</button></div></div>`;
+  }).join("");
+  return `<div class="deal" data-id="${id}"><h4>${signed ? "Signed ✓ · after signing" : "The deal: offer to signed"}</h4>
+    ${signed ? "" : `<div class="sec"><b>The offer</b><div class="grid2">
+      <label>Rent per month (€, total)<input class="tm" data-k="rent" inputmode="decimal" value="${esc(t.rent ?? r.price ?? "")}" ${dis}></label>
+      <label>Deposit (€)<input class="tm" data-k="deposit" inputmode="decimal" value="${esc(t.deposit ?? r.deposit ?? "")}" ${dis}></label>
+      <label>Service costs / bills (€ per month)<input class="tm" data-k="service_costs" inputmode="decimal" value="${esc(t.service_costs ?? "")}" ${dis}></label>
+      <label>Start<input class="tm" data-k="start" type="date" value="${esc(t.start ?? "")}" ${dis}></label>
+      <label>End (empty = open-ended)<input class="tm" data-k="end" type="date" value="${esc(t.end ?? "")}" ${dis}></label>
+      <label>Registration allowed<select class="tm" data-k="registration" ${dis}>${opt("", t.registration, "Not sure yet")}${opt("yes", t.registration, "Yes")}${opt("no", t.registration, "No")}</select></label>
+      <label>People allowed<input class="tm" data-k="people" inputmode="numeric" value="${esc(t.people ?? r.people ?? "")}" ${dis}></label>
+      <label>Landlord's name<input class="tm" data-k="landlord" value="${esc(t.landlord ?? contacts[id]?.name ?? "")}" ${dis}></label>
+    </div><div class="trow"><button class="btn ghost small dterms" type="button" ${dis}>Save the offer</button><small class="dst2"></small></div>
+    ${t.registration === "no" ? `<div class="flags">No registration: you need a registered address by about 15 Nov.</div>` : ""}</div>
+    <div class="sec"><b>Before you pay or sign</b>${CHECKS.map(([k, txt]) => {
+      const auto = k === "seen" && autoSeen && !ck.seen;
+      return `<label class="chk${auto ? " auto" : ""}"><input type="checkbox" class="dck" data-k="${k}" ${ck[k] || auto ? "checked" : ""} ${dis}> ${esc(txt)}${auto ? " (your viewing is on the card)" : ""}</label>`;
+    }).join("")}</div>`}
+    <div class="sec"><b>${signed ? "Signed contract" : "Contract"}</b>
+      ${d.contract ? `<div class="trow"><span>${esc(d.contract.name)} · ${esc(dayTxt(d.contract.uploaded_at))}</span><button class="btn ghost small dopen" type="button">Open</button><button class="btn ghost small dcheck" type="button">${rv ? "Check again" : "Check it with AI"}</button></div>` : `<small class="why">Upload the contract they send you (a PDF, or photos of the pages). The AI reads it and tells you what to watch out for. It isn't a lawyer.</small>`}
+      <label class="btn ghost small" style="width:fit-content">${d.contract ? "Replace the contract" : "Upload the contract"}<input type="file" class="dfile" accept="application/pdf,image/*" hidden ${dis}></label>
+      ${rv ? `<div class="review"><div><span class="${vcls[rv.verdict] || ""}">${esc(cap(rv.verdict || ""))}</span> · ${esc(rv.summary || "")}</div>
+        ${L("Watch out", rv.red_flags)}${L("Ask the landlord before signing", rv.check_with_landlord)}${L("Fine", rv.good)}
+        ${rv.terms ? `<div><b>What it says</b><ul>${Object.entries(rv.terms).filter(([, v]) => v).map(([k, v]) => `<li>${esc(cap(k.replace(/_/g, " ")))}: ${esc(v)}</li>`).join("")}</ul></div>` : ""}
+        ${(rv.check_with_landlord || []).length ? `<div class="trow"><button class="btn ghost small dask" type="button">Draft a message asking these</button></div>` : ""}
+        <small class="why">Checked by ${esc(rv.model || "AI")} · not legal advice. For a real dispute: Juridisch Loket (free).</small></div>` : ""}
+      <small class="dst3"></small></div>
+    <div class="sec"><b>Payments</b>${pays || `<small class="why">Nothing to pay yet. Add each payment they ask for (deposit, first month). Each one needs your Approve.</small>`}
+      ${signed && (d.payments || []).every((p) => p.status === "paid") ? "" : `<details><summary class="lbl">Add a payment they asked for</summary><div class="grid2" style="margin-top:6px">
+        <label>For<select class="pw"><option>Deposit</option><option>First month's rent</option><option>Rent</option><option>Other</option></select></label>
+        <label>Amount (€)<input class="pa" inputmode="decimal"></label><label>To (account name)<input class="pt" value="${esc(t.landlord ?? contacts[id]?.name ?? "")}"></label>
+        <label>IBAN<input class="pi" autocapitalize="characters"></label><label>Reference<input class="pr"></label><label>Due<input class="pd" type="date"></label>
+      </div><div class="trow" style="margin-top:6px"><button class="btn ghost small padd" type="button" ${dis}>Add payment</button></div></details>`}</div>
+    ${signed ? `<div class="sec"><div>Signed on ${esc(dayTxt(d.signed_at))}. <button class="linkbtn dunsign" type="button">Undo</button></div>
+      <div class="grid2"><label>Move-in day<input class="daf" data-k="move_in" type="date" value="${esc(af.move_in ?? t.start ?? "")}" ${dis}></label>
+      <label>Registration appointment (gemeente)<input class="daf" data-k="reg_appt" type="datetime-local" value="${esc(af.reg_appt ? toLocalInput(af.reg_appt) : "")}" ${dis}></label></div>
+      <a href="https://www.google.com/search?q=${encodeURIComponent("inschrijven adres afspraak gemeente " + (r.city || ""))}" target="_blank" rel="noopener">Book the registration appointment (gemeente ${esc(r.city || "")}) ↗</a>
+      <small class="why">Register within 5 days after moving in. Your deadline for the temporary BSN is about 15 Nov. Bring your passport and the signed contract.</small>
+      ${[["keys", "I have the keys"], ["registered", "I'm registered at this address"]].map(([k, txt]) => `<label class="chk"><input type="checkbox" class="dafc" data-k="${k}" ${af[k] ? "checked" : ""} ${dis}> ${txt}</label>`).join("")}
+      <div class="trow"><button class="btn ghost small dbye" type="button" ${dis}>Tell the other landlords I found a place</button><small class="dst4"></small></div>
+      <small class="why">Writes a short "I found a place" draft on every other open lead. You still send each one.</small></div>`
+    : `<div class="sec"><b>Sign</b><div class="trow"><label class="vd">Signed on <input class="dsdate" type="date" value="${new Date().toISOString().slice(0, 10)}" ${dis}></label><button class="btn small dsign" type="button" ${dis}>I signed the contract</button></div>
+      <small class="why">Sign only after the checks above. Signing is done by you, with the landlord.</small></div>`}
+  </div>`;
+}
+async function dealCall(id, body){
+  const r = await fn("deal", { method: "POST", body: JSON.stringify({ id: Number(id), ...body }) });
+  if (r.deal) deals[id] = r.deal;
+  return r;
+}
+async function readFile64(f){ return await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(String(rd.result).split(",")[1] || ""); rd.onerror = () => bad(new Error("couldn't read the file")); rd.readAsDataURL(f); }); }
+async function pdfText(src){
+  if (!window.pdfjsLib){
+    await new Promise((ok, bad) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; s.onload = ok; s.onerror = () => bad(new Error("couldn't load the PDF reader")); document.head.appendChild(s); });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+  const doc = await window.pdfjsLib.getDocument(src).promise; let out = "";
+  for (let i = 1; i <= Math.min(doc.numPages, 30); i++){ const tc = await (await doc.getPage(i)).getTextContent(); out += tc.items.map((x) => x.str).join(" ") + "\n"; }
+  return out;
+}
+async function checkContract(id, st, text){
+  st.textContent = "The AI is reading the contract (about 20 seconds)…";
+  try {
+    if (text == null && deals[id]?.contract?.mime === "application/pdf") text = await pdfText((await dealCall(id, { action: "contract_url" })).url);
+    await dealCall(id, { action: "contract_check", text: text || "" });
+    st.textContent = ""; renderList();
+  } catch (err) { st.textContent = /no readable text/.test(err.message) ? "This PDF has no readable text (a scan). Upload photos of the pages instead." : "Couldn't check it: " + err.message; }
+}
+$("list").addEventListener("click", async (e) => {
+  const cp = e.target.closest(".cp");
+  if (cp){ navigator.clipboard?.writeText(cp.dataset.v).then(() => { const o = cp.textContent; cp.textContent = "Copied"; setTimeout(() => { cp.textContent = o; }, 1200); }); return; }
+  const cs = e.target.closest(".csave");
+  if (cs){
+    const box = cs.closest("details").querySelector(".contact"), st = cs.parentElement.querySelector(".cst"), id = cs.dataset.id;
+    try { const r = await fn("deal", { method: "POST", body: JSON.stringify({ action: "contact", id: Number(id), name: box.querySelector(".cname").value, email: box.querySelector(".cemail").value, phone: box.querySelector(".cphone").value }) }); contacts[id] = r.contact; st.textContent = "Saved"; renderList(); }
+    catch (err) { st.textContent = "Couldn't save: " + err.message; }
+    return;
+  }
+  const ds = e.target.closest(".dstart");
+  if (ds){ try { await setStand(ds.dataset.id, { stage: "offer" }); deals[ds.dataset.id] ||= { terms: {}, checks: {}, payments: [], after: {} }; openSet.add(String(ds.dataset.id)); renderList(); } catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save: " + err.message; } return; }
+  const box = e.target.closest(".deal"); if (!box) return;
+  const id = box.dataset.id, pay = e.target.closest(".pay"), pid = pay?.dataset.pid;
+  const fail = (err) => { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save: " + err.message; };
+  try {
+    if (e.target.closest(".dterms")){
+      const terms = {}; box.querySelectorAll(".tm").forEach((i) => { terms[i.dataset.k] = i.value; });
+      await dealCall(id, { action: "terms", terms }); await loadStatuses(); renderList();
+    } else if (e.target.closest(".dopen")){
+      const w = window.open("", "_blank"); const r = await dealCall(id, { action: "contract_url" }); if (w) w.location = r.url; else location.href = r.url;
+    } else if (e.target.closest(".dcheck")) await checkContract(id, box.querySelector(".dst3"));
+    else if (e.target.closest(".dask")){
+      const qs = deals[id]?.contract?.review?.check_with_landlord || [];
+      openAsk(Number(id), names[id]?.street || listingOf(id)?.street);
+      $("askText").value = `Write a reply draft to the landlord asking these questions about the contract before I sign:\n- ${qs.join("\n- ")}`;
+    } else if (e.target.closest(".padd")){
+      const g = (c) => box.querySelector(c).value;
+      if (!g(".pa")){ fail(new Error("fill in the amount")); return; }
+      await dealCall(id, { action: "pay_add", payment: { what: g(".pw"), amount: g(".pa"), to_name: g(".pt"), iban: g(".pi"), reference: g(".pr"), due: g(".pd") } }); await loadStatuses(); renderList(); renderAgenda();
+    } else if (e.target.closest(".pappr")){
+      const p = (deals[id]?.payments || []).find((x) => x.pid === pid), w = payWarnings(id, deals[id], p);
+      if (!confirm(`Approve paying €${p.amount} to ${p.to_name || "the landlord"} for ${p.what}?${w.length ? "\n\nStill open:\n- " + w.join("\n- ") : ""}`)) return;
+      await dealCall(id, { action: "pay_set", pid, status: "approved" }); renderList(); renderAgenda();
+    } else if (e.target.closest(".ppaid")){ await dealCall(id, { action: "pay_set", pid, status: "paid" }); renderList(); renderAgenda(); }
+    else if (e.target.closest(".pundo")){ await dealCall(id, { action: "pay_set", pid, status: (deals[id]?.payments || []).find((x) => x.pid === pid)?.status === "paid" ? "approved" : "proposed" }); renderList(); renderAgenda(); }
+    else if (e.target.closest(".pdel")){ await dealCall(id, { action: "pay_delete", pid }); renderList(); renderAgenda(); }
+    else if (e.target.closest(".dsign")){
+      if (!confirm("Mark this place as signed? Progress moves to Signed and the after-signing steps appear.")) return;
+      await dealCall(id, { action: "signed", signed_on: box.querySelector(".dsdate").value }); await loadStatuses(); renderList(); renderAgenda();
+    } else if (e.target.closest(".dunsign")){ await dealCall(id, { action: "unsigned" }); await loadStatuses(); renderList(); }
+    else if (e.target.closest(".dbye")){
+      const st = box.querySelector(".dst4"); st.textContent = "Writing…";
+      const r = await dealCall(id, { action: "goodbyes" }); await loadDrafts();
+      st.textContent = r.drafted ? `${r.drafted} drafts written. They're on each card (filter Show: Has a draft).` : "No other open leads.";
+    }
+  } catch (err) { fail(err); }
+});
+$("list").addEventListener("change", async (e) => {
+  const box = e.target.closest(".deal"); if (!box) return;
+  const id = box.dataset.id;
+  try {
+    if (e.target.closest(".dck")) await dealCall(id, { action: "checks", checks: { [e.target.dataset.k]: e.target.checked } });
+    else if (e.target.closest(".daf")) { await dealCall(id, { action: "after", after: { [e.target.dataset.k]: e.target.type === "datetime-local" && e.target.value ? new Date(e.target.value).toISOString() : e.target.value } }); renderAgenda(); }
+    else if (e.target.closest(".dafc")) await dealCall(id, { action: "after", after: { [e.target.dataset.k]: e.target.checked } });
+    else if (e.target.closest(".dfile")){
+      const f = e.target.files?.[0], st = box.querySelector(".dst3"); if (!f) return;
+      if (f.size > 15 * 1024 * 1024){ st.textContent = "That file is bigger than 15 MB."; return; }
+      st.textContent = "Uploading…";
+      const mime = f.type || (/\.pdf$/i.test(f.name) ? "application/pdf" : "image/jpeg");
+      let text = null;
+      if (mime === "application/pdf") try { text = await pdfText({ data: new Uint8Array(await f.arrayBuffer()) }); } catch { text = ""; }
+      await dealCall(id, { action: "contract_upload", name: f.name, mime, data: await readFile64(f) });
+      renderList();
+      await checkContract(id, $("list").querySelector(`.deal[data-id="${id}"] .dst3`) || st, text);
+    }
+  } catch (err) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't save: " + err.message; }
+});
+async function loadDeals(){
+  if (!pass) return;
+  try { const r = await fn("deal?all=1"); deals = r.deals || {}; contacts = r.contacts || {}; } catch {}
+}
+
+// ---- Add a place that isn't on Kamernet ----
+$("addbtn").onclick = () => { $("apInfo").textContent = ""; $("addDlg").showModal(); $("apStreet").focus(); };
+$("addClose").onclick = () => $("addDlg").close();
+$("apSave").onclick = async () => {
+  const v = (i) => $(i).value.trim();
+  if (!v("apStreet") || !v("apCity") || !v("apPrice")){ $("apInfo").textContent = "Fill in at least street, city and rent."; return; }
+  $("apInfo").textContent = "Adding…";
+  try {
+    const stage = v("apStage");
+    const r = await fn("deal", { method: "POST", body: JSON.stringify({ action: "add_place",
+      place: { street: v("apStreet"), city: v("apCity"), price: v("apPrice"), kind: v("apKind"), people: v("apPeople"), size_m2: v("apSize"), available_from: v("apFrom"), url: v("apUrl"), notes: v("apNotes"), stage },
+      contact: { name: v("apCName"), email: v("apCEmail"), phone: v("apCPhone") } }) });
+    $("addDlg").close();
+    document.querySelectorAll("#addDlg input, #addDlg textarea").forEach((i) => { i.value = ""; });
+    await Promise.all([loadStatuses(), loadDeals()]);
+    setFocus(r.id);
+  } catch (err) { $("apInfo").textContent = "Couldn't add it: " + err.message; }
+};
 
 // ---- Start ----
 if (pass) enterApp();
