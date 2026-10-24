@@ -59,7 +59,7 @@ const S = Object.assign({
   kindF: {}, regF: {}, max: 900, q: "", dist: "any", cheap: "hide", hideContacted: false,
   depMax: 0, depLegal: false, depKnown: false, // deposit: max € (0 = any), hide above 2 months' rent, hide when not stated
   tags: {}, // tag -> "in" (must have) | "out" (hide these)
-  sort: "per_person.asc.nullslast", ppl: 4,
+  sort: "per_person", dir: "asc", ppl: 4,
   loc: null,    // {name, lat, lng, km, city?, r?}: km 0 = only that city; otherwise a circle of km around the point
   view: "list", tab: "find",
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
@@ -68,6 +68,26 @@ const S = Object.assign({
   if (c && !S.loc) S.loc = { name: c, city: c, km: 0 };
   for (const m of [S.kindF, S.regF]) for (const k of Object.keys(m)) if (m[k] !== "in") delete m[k];
   for (const k of ["cityF", "msgf", "stageF", "opF", "closedF"]) delete S[k];
+  if (S.sort.includes(".")){ const [k, d] = S.sort.split("."); S.sort = k; S.dir = d; } // sort used to hold its direction too
+}
+// what you can sort by: label, the direction it starts in, and what up / down mean for it
+const SORTS = {
+  per_person: ["Price", "asc", "Lowest price first", "Highest price first"],
+  first_seen_at: ["Date found", "desc", "Oldest first", "Newest first"],
+  "raw->>publishDate": ["Date posted", "desc", "Oldest first", "Newest first"],
+  size_m2: ["Size", "desc", "Smallest first", "Biggest first"],
+  available_from: ["Available from", "asc", "Soonest first", "Latest first"],
+  status: ["Status", "desc", "Just contacted first", "Furthest along first"],
+};
+if (!SORTS[S.sort]) S.sort = "per_person";
+const orderBy = () => S.sort === "status" ? "first_seen_at.desc" : `${S.sort}.${S.dir}.nullslast`;
+// Status sort: places you're in touch with come first (furthest along or just started), then everything else, newest first
+const statusRank = (id) => STAGES.indexOf(stageOf(String(id))) * 10 + ({ want: 3, interested: 2, hold: 1 }[stOf(String(id)).opinion] ?? 0);
+const statusIds = () => Object.keys(statuses).filter((id) => !isClosed(id) && statusRank(id) > 0);
+function drawSortDir(){
+  const s = SORTS[S.sort], txt = S.dir === "asc" ? s[2] : s[3];
+  $("sortdir").textContent = S.dir === "asc" ? "↑" : "↓";
+  $("sortdir").title = txt; $("sortdir").setAttribute("aria-label", "Order: " + txt + ". Tap to flip.");
 }
 function persist(){ store.set("kn_state", JSON.stringify(S)); }
 
@@ -75,7 +95,7 @@ function persist(){ store.set("kn_state", JSON.stringify(S)); }
 let pass = store.get("kn_pass") || "";
 let statuses = {}, threads = {}, deals = {}, contacts = {}, drafts = [], inbox = null, facts = [], cityList = [], tagCounts = [];
 const cache = {};                // listing id -> row (from any list, kept for My leads, Inbox and the listing page)
-let loaded = [], total = 0, offset = 0;
+let loaded = [], total = 0, offset = 0, topN = 0;
 const stOf = (id) => statuses[id] || {};
 // a booked viewing whose time has passed counts as viewed
 const stageOf = (id) => { const x = stOf(id), sg = x.stage || "none"; return sg === "booked" && x.viewing_at && Date.parse(x.viewing_at) < Date.now() ? "viewed" : sg; };
@@ -199,7 +219,7 @@ function filters(){
   return p;
 }
 const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,check_reasons";
-const qs = (extra) => [...filters(), `order=${S.sort}`, ...extra].join("&");
+const qs = (extra) => [...filters(), `order=${orderBy()}`, ...extra].join("&");
 // with a Location and a distance, only listings within that many km (a city + distance = the whole city plus that far around it)
 const nearOn = () => S.loc && S.loc.km > 0 && S.loc.lat != null;
 const areaKm = () => S.loc.city ? (S.loc.r || 0) + S.loc.km : S.loc.km;
@@ -266,7 +286,7 @@ function cardHtml(r){
   </article>`;
 }
 function renderList(){
-  if (S.sort.startsWith("per_person")){ const k = (r) => ppOf(r) ?? 1e9, dir = S.sort.includes(".desc") ? -1 : 1; loaded.sort((a, b) => dir * (k(a) - k(b))); }
+  if (S.sort === "per_person"){ const dir = S.dir === "desc" ? -1 : 1, k = (r) => ppOf(r) ?? dir * 1e9; loaded.sort((a, b) => dir * (k(a) - k(b))); }
   $("list").innerHTML = loaded.length ? loaded.map(cardHtml).join("")
     : `<div class="empty"><b>Nothing matches.</b><span>Try a bigger distance, a higher price, or fewer filters.</span>${activeFilters().length ? '<button class="btn ghost" type="button" data-act="reset">Reset all filters</button>' : ""}</div>`;
   $("count").textContent = `${plural(total, "listing")}${loaded.length < total ? ` · showing ${loaded.length}` : ""}`;
@@ -311,21 +331,30 @@ function filtersChanged(){ load(true); }
 let loadToken = 0;
 async function load(reset){
   const my = ++loadToken;
-  if (reset){ offset = 0; loaded = []; if (picked.size){ picked.clear(); } }
+  if (reset){ offset = 0; topN = 0; loaded = []; if (picked.size){ picked.clear(); } }
   try {
-    const res = await rest(`${base()}select=${SELECT}&${qs([`limit=${PAGE}`, `offset=${offset}`])}`, { Prefer: "count=exact" });
+    const ids = S.sort === "status" ? statusIds() : [];
+    let top = [];
+    if (ids.length && reset){ // your leads that match the filters, in status order
+      top = await (await rest(`${base()}select=${SELECT}&${qs([`id=in.(${ids.join(",")})`])}`)).json();
+      const k = (r) => statusRank(r.id) * (S.dir === "asc" ? -1 : 1);
+      top.sort((a, b) => k(b) - k(a));
+      topN = top.length;
+    }
+    const res = await rest(`${base()}select=${SELECT}&${qs([...(ids.length ? [`id=not.in.(${ids.join(",")})`] : []), `limit=${PAGE}`, `offset=${offset}`])}`, { Prefer: "count=exact" });
     const rows = await res.json();
     if (my !== loadToken) return;
-    total = countOf(res, rows.length);
-    for (const r of rows) cache[r.id] = r;
-    loaded = loaded.concat(rows); offset += rows.length;
+    total = topN + countOf(res, rows.length);
+    for (const r of [...top, ...rows]) cache[r.id] = r;
+    loaded = loaded.concat(top, rows); offset += rows.length;
     renderList();
     if ($("filtDlg").open) $("filtDone").textContent = `Show ${plural(total, "listing")}`;
     if (reset && S.view === "map") loadMap();
   } catch (e) { $("count").textContent = "Couldn't load listings: " + e.message; }
 }
 $("more").onclick = () => load(false);
-$("sort").onchange = (e) => { S.sort = e.target.value; persist(); load(true); };
+$("sort").onchange = (e) => { S.sort = e.target.value; S.dir = SORTS[S.sort][1]; drawSortDir(); persist(); load(true); };
+$("sortdir").onclick = () => { S.dir = S.dir === "asc" ? "desc" : "asc"; drawSortDir(); persist(); load(true); toast(SORTS[S.sort][S.dir === "asc" ? 2 : 3]); };
 async function headline(){
   try {
     const n = countOf(await rest("listings?select=id&gone_at=is.null&dup_of=is.null&limit=1", { Prefer: "count=exact" }), 0);
@@ -1516,7 +1545,7 @@ const hashId = () => (location.hash.match(/l=(\d+)/) || [])[1] || null;
 window.addEventListener("hashchange", () => { if (pass && hashId() && hashId() !== lpId) openListing(hashId()); });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && pass && !$("app").hidden) refreshAll(); });
 async function boot(){
-  $("sort").value = S.sort;
+  $("sort").value = S.sort; drawSortDir();
   renderLoc(); renderActive(); applyView();
   await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts()]);
   showTab(["find", "leads", "inbox", "more"].includes(S.tab) ? S.tab : "find");

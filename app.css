@@ -87,6 +87,7 @@ select{appearance:auto}
 .toolrow{display:flex;gap:8px;align-items:center}
 .toolrow select{flex:1 1 auto;min-width:0}
 .toolrow #filtbtn{flex:0 0 auto}
+.toolrow #sortdir{flex:0 0 auto;min-width:40px;padding-left:0;padding-right:0;font-size:18px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:0 0 auto}
 .seg button{border:0;background:var(--surface);color:var(--ink);padding:0 14px;min-height:42px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--surface)}
