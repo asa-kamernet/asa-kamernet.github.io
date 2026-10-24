@@ -812,7 +812,7 @@ async function openListing(id, sec){
   $("lp").scrollTop = 0;
   if (location.hash !== `#l=${id}`) history.replaceState(null, "", `#l=${id}`);
   lpRender();
-  loadThread(id);
+  loadThread(id); liveCheck(id);
   if (sec) setTimeout(() => { const el = $("lp-" + sec); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
 }
 $("lpBack").onclick = () => $("lp").close();
@@ -830,6 +830,7 @@ function lpRender(){
       <div class="lpprice">${priceHtml(r)}${dv > 1 ? `<span class="why">${eur(r.price)} a month for ${dv}${dv < r.people ? ` (up to ${r.people} allowed)` : ""}</span>` : r.people == null ? '<span class="why">People allowed not stated</span>' : '<span class="why">a month</span>'}${r.deposit > 0 ? `<span class="why">· deposit ${eur(r.deposit)}</span>` : ""}</div>
       <div class="lpmeta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail(r) ? `<span>${esc(avail(r))}</span>` : ""}${r.posted ? `<span>${esc(postedTxt(r.posted))}</span>` : ""}${dt ? `<span class="dist">${esc(dt)}</span>` : ""}${r.gone_at && r.source !== "manual" ? "<span>No longer on Kamernet</span>" : ""}</div>
       <div class="badges">${badgeList(r).map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}${r.reg === "unknown" ? '<span class="badge">Registration not stated</span>' : ""}</div>
+      <div id="lpLive">${liveHtml(id)}</div>
       <div class="links"><a href="${esc(mapUrl(r))}" target="_blank" rel="noopener">Map ↗</a>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${r.source === "manual" ? "The ad ↗" : "On Kamernet ↗"}</a>` : ""}</div>
     </div>
     ${closed ? `<div class="closedbar"><span>Closed: ${esc(x.closed ? CLOSED_LABEL[x.closed] : "Not for me")}</span><button class="btn small ghost" type="button" data-a="reopen">Reopen</button></div>` : ""}
@@ -867,6 +868,37 @@ function lpRender(){
   body.scrollTop = top;
   if (open.includes("full")) loadFull(id);
 }
+// ---- the ad on Kamernet, checked live when its page opens (the nightly sweep only catches removals and price changes once a day) ----
+const live = {}; // listing id -> {state: "checking"|"ok"|"gone"|"changed"|"failed", at, old, now}
+function liveHtml(id){
+  const x = live[id], r = cache[id];
+  if (r?.source !== "kamernet") return "";
+  if (!x) return "";
+  if (x.state === "checking") return '<p class="why">Checking the ad on Kamernet…</p>';
+  if (x.state === "gone") return `<div class="closedbar"><span>This ad is no longer on Kamernet (checked just now).${stageOf(id) === "none" ? " It's probably let." : " Ask the landlord if it's still available."}</span></div>`;
+  if (x.state === "changed") return `<div class="closedbar" style="background:var(--warn-soft);color:var(--warn)"><span>The price on Kamernet changed: ${eur(x.old)} → ${eur(x.now)} a month (checked just now).</span></div>`;
+  if (x.state === "failed") return `<p class="why">Couldn't reach Kamernet just now, so this may not be the latest. It's checked again tonight.</p>`;
+  return '<p class="why" style="color:var(--ok)">✓ Still on Kamernet, same price (checked just now).</p>';
+}
+async function liveCheck(id){
+  const r = cache[id];
+  if (r?.source !== "kamernet" || !r.url) return;
+  if (live[id] && live[id].state !== "failed" && Date.now() - live[id].at < 10 * 60000) return; // checked in the last 10 minutes
+  live[id] = { state: "checking", at: Date.now() };
+  const show = () => { if (lpId === id && $("lpLive")) $("lpLive").innerHTML = liveHtml(id); };
+  show();
+  try {
+    const res = await fn(`ingest?url=${encodeURIComponent(r.url)}`);
+    const one = (res.results || [])[0] || {};
+    const old = r.price;
+    await refreshRow(id);
+    if (one.status === "gone") live[id] = { state: "gone", at: Date.now() };
+    else if (one.status === "saved") live[id] = Number(one.price) && Number(one.price) !== Number(old) ? { state: "changed", at: Date.now(), old, now: Number(one.price) } : { state: "ok", at: Date.now() };
+    else live[id] = { state: "failed", at: Date.now() };
+  } catch { live[id] = { state: "failed", at: Date.now() }; }
+  if (lpId === id && ["gone", "changed"].includes(live[id].state)) { lpRender(); renderAll(); } else show();
+}
+
 const fullText = {};
 async function loadFull(id){
   if (fullText[id] != null) return;
