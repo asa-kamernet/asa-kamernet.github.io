@@ -228,7 +228,7 @@ function filters(){
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
 }
-const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,check_reasons";
+const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,check_reasons,dup_of,dup_ignore";
 const qs = (extra) => [...filters(), `order=${orderBy()}`, ...extra].join("&");
 // with a Location and a distance, only listings within that many km (a city + distance = the whole city plus that far around it)
 const nearOn = () => S.loc && S.loc.km > 0 && S.loc.lat != null;
@@ -900,6 +900,7 @@ function lpRender(){
       <div class="badges">${checkBadge(r)}${badgeList(r).map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}${r.reg === "unknown" ? '<span class="badge">Registration not stated</span>' : ""}</div>
       <div id="lpLive">${liveHtml(id)}</div>
       <div class="links"><a href="${esc(mapUrl(r))}" target="_blank" rel="noopener">Map ↗</a>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${r.source === "manual" ? "The ad ↗" : `On ${esc(siteName(r.source))} ↗`}</a>` : ""}</div>
+      <div id="lpDups">${dupsHtml(id)}</div>
     </div>
     ${closed ? `<div class="closedbar"><span>Closed: ${esc(x.closed ? CLOSED_LABEL[x.closed] : "Not for me")}</span><button class="btn small ghost" type="button" data-a="reopen">Reopen</button></div>` : ""}
     ${needsVerdict(id) ? `<section class="sec hi" id="lp-verdict"><h3>You viewed it ${x.viewing_at ? esc(when(x.viewing_at)) : ""}. How was it?</h3>
@@ -936,6 +937,29 @@ function lpRender(){
     </section>`;
   body.scrollTop = top;
   if (open.includes("full")) loadFull(id);
+  loadDups(id);
+}
+// ---- reposts: the same place posted again (same address, price and size, similar text, an hour or more apart) is hidden
+// behind the oldest ad; its page lists the reposts, and "Not the same place" shows one again ----
+const dups = {}; // listing id -> [{id,url,first_seen_at,posted}]
+async function loadDups(id){
+  try { dups[id] = await (await rest(`listings?select=id,url,first_seen_at,posted:raw->>publishDate&dup_of=eq.${id}&gone_at=is.null&order=id&limit=20`)).json(); } catch { return; }
+  if (lpId === id && $("lpDups")) $("lpDups").innerHTML = dupsHtml(id);
+}
+function dupsHtml(id){
+  const r = cache[id]; if (!r) return "";
+  const day = (d) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+  if (r.dup_of) return `<div class="dupbox"><span>This looks like a repost of an older ad for the same place, so it's hidden from the list. <a href="#l=${r.dup_of}">Open the older ad</a></span><button class="btn small ghost" type="button" data-notdup="${id}">Not the same place</button></div>`;
+  const list = dups[id] || [];
+  const undo = r.dup_ignore ? `<div class="dupbox"><span>You said this isn't a repost, so it shows on its own.</span><button class="btn small ghost" type="button" data-isdup="${id}">It is a repost after all</button></div>` : "";
+  if (!list.length) return undo;
+  return `${undo}<div class="dupbox"><span><b>Posted ${list.length + 1} times.</b> The ${list.length === 1 ? "repost is" : `${list.length} reposts are`} hidden from the list:</span>
+    ${list.map((d) => `<div class="btnrow"><a href="${esc(d.url || "#")}" target="_blank" rel="noopener">Repost of ${esc(day(d.posted || d.first_seen_at))} ↗</a><button class="btn small ghost" type="button" data-notdup="${d.id}">Not the same place</button></div>`).join("")}</div>`;
+}
+async function setNotDup(lid, ignore){
+  await fn("status", { method: "POST", body: JSON.stringify({ action: "notdup", id: Number(lid), set: { ignore } }) });
+  await refreshRow(lid);
+  if (lpId){ await refreshRow(lpId); lpRender(); }
 }
 // ---- the ad on its site (Kamernet, Pararius, ...), checked live when its page opens: new listings are read every 15 minutes, but an ad can go or change any time ----
 const live = {}; // listing id -> {state: "checking"|"ok"|"gone"|"changed"|"failed", at, old, now}
@@ -1132,6 +1156,13 @@ $("lpBody").addEventListener("click", async (e) => {
     } else if (b.dataset.close){
       await setStand(id, { closed: b.dataset.close });
       toast(`Closed: ${CLOSED_LABEL[b.dataset.close]}`, standUndo(id, before));
+    } else if (b.dataset.notdup){
+      const lid = b.dataset.notdup;
+      await setNotDup(lid, true);
+      toast("Shown as a separate place now.", { label: "Undo", fn: () => setNotDup(lid, false) });
+    } else if (b.dataset.isdup){
+      await setNotDup(b.dataset.isdup, false);
+      toast("Hidden again as a repost (if it still matches an older ad).");
     } else if (b.dataset.a === "reopen"){
       await setStand(id, { closed: null, ...(before.opinion === "no" ? { opinion: null } : {}) });
       toast("Reopened.", standUndo(id, before));
