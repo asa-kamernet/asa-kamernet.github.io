@@ -143,6 +143,7 @@ details.more>summary{cursor:pointer;color:var(--muted)}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 #app{display:flex;flex-direction:column;gap:14px}
 #app[hidden],#lock[hidden]{display:none}
+[hidden]{display:none!important} /* bars like .dbar set display:flex, which used to beat the hidden attribute */
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px))}
 dialog::backdrop{background:rgba(10,16,22,.55)}
 .dlg{padding:16px;display:flex;flex-direction:column;gap:10px}
@@ -227,6 +228,40 @@ a.btn{text-decoration:none;display:inline-block}
 .contact{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px 10px}
 .why{font-size:12px;color:var(--muted)}
 .focusbar{background:var(--accent-soft);border-color:var(--accent);scroll-margin-top:130px}
+/* Location (place + radius, like Kamernet) and the map view */
+.locrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.locbox{position:relative;flex:1 1 240px;min-width:0}
+.locbox input{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;font-size:14px}
+.locbox input.set{border-color:var(--accent);background:var(--accent-soft)}
+.sugg{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);overflow:hidden;max-height:340px;overflow-y:auto}
+.sugg button{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);padding:8px 10px;font:inherit;font-size:14px;cursor:pointer}
+.sugg button:last-child{border-bottom:0}
+.sugg button:hover,.sugg button:focus{background:var(--accent-soft);outline:none}
+.sugg small{color:var(--muted);white-space:nowrap}
+#locr{flex:0 0 auto}
+.views{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.views button{border:0;background:var(--surface);color:var(--ink);padding:6px 12px;font:inherit;font-size:14px;cursor:pointer}
+.views button[aria-pressed="true"]{background:var(--accent);color:var(--surface)}
+.mapwrap{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+#map{height:min(72vh,680px);min-height:360px;background:var(--bg)}
+.mapnote{position:absolute;left:10px;bottom:10px;z-index:500;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:12.5px;max-width:calc(100% - 20px)}
+#maparea{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:500;box-shadow:0 2px 10px rgba(0,0,0,.2)}
+.pinw{width:0;height:0}
+.pin{position:absolute;left:0;bottom:6px;transform:translateX(-50%);background:var(--accent);color:var(--surface);font:600 12.5px/1 var(--sans);padding:5px 7px;border-radius:7px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer}
+.pin::after{content:"";position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:inherit}
+.pin{border-color:var(--accent)} .pin.lead{background:var(--ok);border-color:var(--ok)} .pin.want{background:var(--gold-badge);color:var(--gold-badge-ink);border-color:var(--gold-badge)} .pin.shut{background:var(--muted);border-color:var(--muted)}
+.clu{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--surface);font:600 13px var(--sans);border:3px solid color-mix(in srgb,var(--accent) 35%,transparent);background-clip:padding-box}
+.here{width:14px;height:14px;border-radius:50%;background:var(--bad);border:3px solid #fff;box-shadow:0 0 0 1px var(--bad)}
+.mpop{display:flex;flex-direction:column;gap:6px;width:220px;font:13.5px/1.4 var(--sans)}
+.mpop .ph{height:110px;border-radius:8px;background:var(--bg) center/cover}
+.mpop b{font-size:15px}
+.mpop .pp{font-size:17px}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--surface);color:var(--ink)}
+.leaflet-popup-content{margin:10px}
+.leaflet-container a.leaflet-popup-close-button{color:var(--muted)}
+.leaflet-control-attribution{font-size:10px}
+.darkmap .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.9)}
+.dist{color:var(--accent);font-weight:500}
 @media (max-width:520px){.card{grid-template-columns:60px minmax(0,1fr) auto}.thumb{width:60px;height:60px}.pp{font-size:19px}.label{min-width:100%}}
 @media (prefers-reduced-motion:no-preference){.chip,.btn{transition:background .12s,color .12s}}
 </style>
@@ -246,7 +281,14 @@ a.btn{text-decoration:none;display:inline-block}
 
   <div id="app" hidden>
   <section class="filters" aria-label="Filters">
-    <div class="row"><span class="label">City</span><div class="chips" id="cities" role="group" aria-label="City"></div></div>
+    <div class="row"><span class="label">Location</span>
+      <div class="locrow" style="flex:1 1 0;min-width:0">
+        <div class="locbox"><input type="search" id="locq" placeholder="City, neighbourhood, street or postcode" aria-label="Location" autocomplete="off" spellcheck="false"><div class="sugg" id="locsugg" role="listbox" hidden></div></div>
+        <select id="locr" aria-label="Distance"></select>
+        <button class="btn ghost small" id="locme" type="button">Near me</button>
+      </div>
+    </div>
+    <div class="row"><div class="chips" id="cities" role="group" aria-label="Quick pick a city"></div></div>
     <div class="row">
       <label class="field">People sharing <input type="range" id="ppl" min="1" max="4" step="1" value="4"><output id="pplo">Up to 4</output></label>
       <label class="field">Max per person <input type="range" id="max" min="300" max="2500" step="25" value="900"><output id="maxo">€900</output></label>
@@ -273,6 +315,7 @@ a.btn{text-decoration:none;display:inline-block}
   <div class="bar">
     <div class="row selrow"><label class="selall"><input type="checkbox" id="selall"> Select all shown</label><span class="count" id="count"></span><button class="btn ghost small" id="selmore" type="button" hidden></button></div>
     <div class="row">
+      <div class="views" role="group" aria-label="View"><button type="button" id="viewList" aria-pressed="true">List</button><button type="button" id="viewMap" aria-pressed="false">Map</button></div>
       <select id="sort" aria-label="Sort">
         <option value="per_person.asc.nullslast">Cheapest per person</option>
         <option value="first_seen_at.desc">Newest first</option>
@@ -297,6 +340,11 @@ a.btn{text-decoration:none;display:inline-block}
   </div>
   <small id="dinfo"></small>
 
+  <div class="mapwrap" id="mapwrap" hidden>
+    <div id="map" aria-label="Map of the listings"></div>
+    <button class="btn small" id="maparea" type="button" hidden>Search this area</button>
+    <div class="mapnote" id="mapnote"></div>
+  </div>
   <div class="list" id="list"></div>
   <div class="more-btn"><button class="btn ghost" id="more" type="button" hidden>Load more</button></div>
   </div>
@@ -409,7 +457,14 @@ const S = Object.assign({
   tags: {}, // tag -> "in" | "out"
   sort: "per_person.asc.nullslast",
   ppl: 4,
+  loc: null,    // {name, lat, lng, km, city?}: km 0 = only listings in that city (needs city); otherwise a circle of km around the point
+  view: "list", // "list" | "map"
 }, (() => { try { return JSON.parse(store.get("kn_state") || "{}"); } catch { return {}; } })());
+{ // the old City chips (several cities, include/exclude) became one Location; keep the first city that was required
+  const c = Object.keys(S.cityF || {}).find((k) => S.cityF[k] === "in");
+  if (c && !S.loc) S.loc = { name: c, city: c, km: 0 };
+  S.cityF = {};
+}
 let pass = store.get("kn_pass") || "";
 let statuses = {};
 let deals = {}, contacts = {}; // listing id -> deal after a viewing (terms, checks, contract, payments, signing) / landlord contact
@@ -467,7 +522,7 @@ function filters(){
   const incl = (col, m, f = (x) => x) => { const a = pick(m, "in").map(f); if (a.length) p.push(`${col}=in.(${a.join(",")})`); };
   const excl = (col, m, f = (x) => x) => { const a = pick(m, "out").map(f); if (a.length) p.push(`${col}=not.in.(${a.join(",")})`); };
   const quote = (c) => `"${c}"`, regCol = (k) => ({ ok: "yes", not: "no", unknown: "unknown" })[k];
-  incl("city", S.cityF, quote); excl("city", S.cityF, quote);
+  if (S.loc && !S.loc.km && S.loc.city) p.push(`city=in.(${quote(S.loc.city)})`); // "Only this city"; a radius goes through base()
   incl("kind", S.kindF); excl("kind", S.kindF);
   incl("reg", S.regF, regCol); excl("reg", S.regF, regCol);
   const ands = [];
@@ -524,8 +579,24 @@ function filters(){
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
 }
-const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode";
+const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng";
 function qs(extra){ return [...filters(), `order=${S.sort}`, ...extra].join("&"); }
+// Where list queries start: all listings, or (Location with a distance) only the ones within that many km of the point
+// A city + distance is the whole city plus that far around it (r = the city's rough size), like Kamernet's "+5 km"
+const nearOn = () => !focusId && S.loc && S.loc.km > 0 && S.loc.lat != null;
+const areaKm = () => S.loc.city ? (S.loc.r || 0) + S.loc.km : S.loc.km;
+const base = () => nearOn() ? `rpc/listings_near?clat=${S.loc.lat}&clng=${S.loc.lng}&km=${areaKm()}${S.loc.city ? "&ccity=" + encodeURIComponent(S.loc.city) : ""}&` : "listings?";
+const locLabel = () => S.loc.city ? S.loc.name + " centre" : S.loc.name === "Near me" ? "you" : S.loc.name === "Map area" ? "the map centre" : S.loc.name.split(",")[0];
+// Straight-line distance in km
+function kmBetween(a, b, c, d){
+  const r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(x));
+}
+function distTxt(r){
+  if (!S.loc || S.loc.lat == null || r.lat == null) return "";
+  const k = kmBetween(S.loc.lat, S.loc.lng, Number(r.lat), Number(r.lng));
+  return `${k < 1 ? Math.round(k * 1000 / 50) * 50 + " m" : k.toFixed(1) + " km"} from ${locLabel()}`;
+}
 
 // ---- Cards ----
 const day = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
@@ -575,7 +646,7 @@ function card(r){
   return `<article class="card${r.distilled_at ? " gold" : ""}" data-id="${r.id}">
     <div class="thumb" style="${r.photos?.[0] ? `background-image:url('${esc(r.photos[0])}')` : ""}" role="img" aria-label="Photo"><input type="checkbox" class="pick" data-id="${r.id}" aria-label="Select ${esc(r.street)}" ${picked.has(r.id) ? "checked" : ""}></div>
     <div class="where"><div class="street">${esc(r.street)}</div>
-      <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}${r.posted ? `<span title="Kamernet publish date">${esc(postedTxt(r.posted))}</span>` : ""}<a class="maplink" href="${esc(mapUrl(r))}" target="_blank" rel="noopener" title="Street and postcode on Google Maps (Kamernet doesn't give the house number)">Map ↗</a></div></div>
+      <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail ? `<span>${esc(avail)}</span>` : ""}${r.posted ? `<span title="Kamernet publish date">${esc(postedTxt(r.posted))}</span>` : ""}${(() => { const t = distTxt(r); return t ? `<span class="dist">${esc(t)}</span>` : ""; })()}<a class="maplink" href="${esc(mapUrl(r))}" target="_blank" rel="noopener" title="Street and postcode on Google Maps (Kamernet doesn't give the house number)">Map ↗</a></div></div>
     <div class="price"><div class="pp">${ppOf(r) != null ? eur(ppOf(r)) : eur(r.price)}<small> ${ppOf(r) != null ? "/pp" : "total"}</small></div>
       <div class="tot">${r.people > 1 ? `${eur(r.price)} ÷ ${divisor(r)}${divisor(r) < r.people ? ` (up to ${r.people})` : ""}` : r.people == null ? "People unknown" : "Per month"}${r.deposit > 0 ? ` · deposit ${eur(r.deposit)}` : ""}</div></div>
     <div class="badges">
@@ -651,7 +722,7 @@ function renderTags(){
   $("tagsel").textContent = sel ? `${sel} selected` : "";
 }
 function renderPanel(){
-  tri($("cities"), CITIES.map((c) => [c, c]), "cityF");
+  renderLoc();
   tri($("kinds"), [["room","Rooms"],["studio","Studios"],["apartment","Apartments"]], "kindF");
   tri($("regs"), [["ok","Registration OK"],["unknown","Unknown"],["not","No registration"]], "regF");
   chips($("dist"), [["any","Any"],["yes","Distilled"],["no","Not distilled"]], "dist", (v) => { S.dist = v; }, false);
@@ -676,11 +747,190 @@ function setDistillBtn(){
 }
 async function countUndistilled(){
   try {
-    const r = await rest(`listings?select=id&${qs(["distilled_at=is.null", "limit=1"])}`, { Prefer: "count=exact" });
+    const r = await rest(`${base()}select=id&${qs(["distilled_at=is.null", "limit=1"])}`, { Prefer: "count=exact" });
     undistilled = Number((r.headers.get("content-range") || "").split("/")[1]) || 0;
   } catch { undistilled = 0; }
   setDistillBtn();
 }
+
+// ---- Location: one place + a distance, like Kamernet. Places come from our own cities and from PDOK
+//      (the Dutch government's free address search: towns, neighbourhoods, streets, postcodes, addresses). ----
+let cityList = []; // [{city, n, lat, lng, r}] cities with open listings
+const KMS = [1, 2, 5, 10, 20, 30];
+const PDOK_TYPE = { woonplaats: "town", wijk: "district", buurt: "neighbourhood", weg: "street", postcode: "postcode", adres: "address" };
+async function loadCities(){
+  try { cityList = await (await rest("city_counts?select=city,n,lat,lng,r&order=n.desc")).json(); } catch { return; }
+  // a city picked before the map existed (or under the old City chips) has no point yet
+  if (S.loc?.city && (S.loc.lat == null || S.loc.r == null)){
+    const c = cityList.find((x) => x.city === S.loc.city);
+    if (c){ Object.assign(S.loc, { lat: c.lat, lng: c.lng, r: c.r }); persist(); if (S.loc.km > 0) load(true); }
+  }
+  renderLoc();
+}
+function renderLoc(){
+  const L0 = S.loc, inp = $("locq");
+  if (document.activeElement !== inp) inp.value = L0 ? L0.name : "";
+  inp.classList.toggle("set", !!L0);
+  const opts = L0 ? [] : [["", "Any distance"]];
+  if (L0?.city) opts.push(["0", "Only this city"]);
+  const kms = [...KMS]; if (L0?.km > 0 && !kms.includes(L0.km)) kms.push(L0.km); kms.sort((a, b) => a - b);
+  for (const k of kms) opts.push([String(k), L0?.city ? `+ ${k} km around it` : `Within ${k} km`]);
+  $("locr").innerHTML = opts.map(([v, t]) => `<option value="${v}" ${String(L0 ? L0.km : "") === v ? "selected" : ""}>${t}</option>`).join("");
+  $("locr").disabled = !L0;
+  const quick = CITIES.filter((c) => !cityList.length || cityList.some((x) => x.city === c));
+  $("cities").innerHTML = quick.map((c) => `<button class="chip" type="button" data-c="${esc(c)}" aria-pressed="${L0?.city === c}">${esc(c)}</button>`).join("")
+    + (L0 ? `<button class="chip" type="button" data-c="" title="Remove the location filter">✕ Anywhere</button>` : "");
+}
+function setLoc(p){
+  const prev = KMS.includes(S.loc?.km) ? S.loc.km : null; // keep the distance you chose, but not an odd "Search this area" one
+  S.loc = p && { name: p.name, lat: p.lat, lng: p.lng, ...(p.city ? { city: p.city, r: p.r } : {}), km: p.km ?? prev ?? (p.city ? 0 : 2) };
+  persist(); renderLoc(); load(true);
+}
+$("cities").onclick = (e) => {
+  const b = e.target.closest(".chip"); if (!b) return; const c = b.dataset.c;
+  if (!c || S.loc?.city === c) return setLoc(null);
+  const x = cityList.find((y) => y.city === c);
+  setLoc({ name: c, city: c, lat: x?.lat, lng: x?.lng, r: x?.r });
+};
+$("locr").onchange = (e) => { if (!S.loc) return; S.loc.km = Number(e.target.value); persist(); renderLoc(); load(true); };
+$("locme").onclick = () => {
+  if (!navigator.geolocation){ $("msg").className = "msg err"; $("msg").textContent = "This browser can't share your location."; return; }
+  $("locme").textContent = "Finding you…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { $("locme").textContent = "Near me"; setLoc({ name: "Near me", lat: +pos.coords.latitude.toFixed(5), lng: +pos.coords.longitude.toFixed(5) }); },
+    () => { $("locme").textContent = "Near me"; $("msg").className = "msg err"; $("msg").textContent = "Couldn't get your location. Allow location for this site, or type a place."; },
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+};
+let sugTimer, sugSeq = 0, sugItems = [];
+const hideSugg = () => { $("locsugg").hidden = true; sugItems = []; };
+function showSugg(items, busy){
+  sugItems = items;
+  $("locsugg").innerHTML = items.map((x, i) => `<button type="button" role="option" data-i="${i}"><span>${esc(x.name)}</span><small>${esc(x.sub || "")}</small></button>`).join("")
+    || `<button type="button" disabled><span>${busy ? "Searching…" : "No place found"}</span></button>`;
+  $("locsugg").hidden = false;
+}
+async function suggest(q){
+  const my = ++sugSeq, lq = q.toLowerCase();
+  const local = cityList.filter((c) => c.city.toLowerCase().includes(lq))
+    .sort((a, b) => (b.city.toLowerCase().startsWith(lq) - a.city.toLowerCase().startsWith(lq)) || b.n - a.n).slice(0, 4)
+    .map((c) => ({ name: c.city, city: c.city, lat: c.lat, lng: c.lng, r: c.r, sub: `${c.n} listing${c.n === 1 ? "" : "s"}` }));
+  showSugg(local, true);
+  let far = [];
+  try {
+    const u = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest?rows=7&fl=weergavenaam,type,centroide_ll,woonplaatsnaam&fq="
+      + encodeURIComponent("type:(woonplaats OR wijk OR buurt OR weg OR postcode OR adres)") + "&q=" + encodeURIComponent(q);
+    const d = await (await fetch(u)).json();
+    far = (d.response?.docs || []).map((x) => {
+      const m = /POINT\(([-\d.]+) ([-\d.]+)\)/.exec(x.centroide_ll || "");
+      if (!m || (x.type === "woonplaats" && local.some((l) => l.city === x.woonplaatsnaam))) return null;
+      return { name: x.type === "woonplaats" ? x.woonplaatsnaam : x.weergavenaam, lat: +(+m[2]).toFixed(5), lng: +(+m[1]).toFixed(5), sub: PDOK_TYPE[x.type] || x.type };
+    }).filter(Boolean);
+  } catch {}
+  if (my !== sugSeq) return;
+  showSugg([...local, ...far], false);
+}
+$("locq").addEventListener("input", (e) => {
+  clearTimeout(sugTimer); const q = e.target.value.trim();
+  if (!q){ hideSugg(); if (S.loc) setLoc(null); return; }
+  sugTimer = setTimeout(() => suggest(q), 220);
+});
+$("locq").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && sugItems.length){ e.preventDefault(); const p = sugItems[0]; hideSugg(); $("locq").blur(); setLoc(p); }
+  if (e.key === "Escape"){ hideSugg(); $("locq").blur(); }
+});
+$("locq").addEventListener("blur", () => setTimeout(() => { hideSugg(); renderLoc(); }, 200));
+$("locsugg").addEventListener("pointerdown", (e) => e.preventDefault()); // keep the box focused until the tap lands
+$("locsugg").onclick = (e) => { const b = e.target.closest("button[data-i]"); if (!b) return; const p = sugItems[+b.dataset.i]; hideSugg(); $("locq").blur(); setLoc(p); };
+
+// ---- Map view: every listing that matches the filters as a price pin (Leaflet + OpenStreetMap/CARTO tiles, loaded on first use) ----
+let mapLib = null, map = null, pins = null, area = null, mapKey = "", fitting = false, mapToken = 0;
+const MAPSEL = "id,price,people,per_person,street,city,kind,size_m2,photos,lat:facts->>lat,lng:facts->>lng";
+const NL = [52.15, 5.3];
+function cdn(tag, attrs){ return new Promise((ok, bad) => { const e = document.createElement(tag); Object.assign(e, attrs); e.onload = ok; e.onerror = () => bad(new Error("the map library didn't load")); document.head.appendChild(e); }); }
+function ensureLeaflet(){
+  const C = "https://cdnjs.cloudflare.com/ajax/libs/";
+  return mapLib ||= (async () => {
+    cdn("link", { rel: "stylesheet", href: C + "leaflet/1.9.4/leaflet.css" }).catch(() => {});
+    cdn("link", { rel: "stylesheet", href: C + "leaflet.markercluster/1.5.3/MarkerCluster.css" }).catch(() => {});
+    await cdn("script", { src: C + "leaflet/1.9.4/leaflet.js" });
+    await cdn("script", { src: C + "leaflet.markercluster/1.5.3/leaflet.markercluster.js" });
+  })().catch((e) => { mapLib = null; throw e; });
+}
+const isDark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+async function initMap(){
+  await ensureLeaflet();
+  if (map) return;
+  map = L.map("map", { center: NL, zoom: 7, zoomSnap: 0.5 });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+  $("map").classList.toggle("darkmap", isDark()); // OpenStreetMap has no dark tiles: the dark look is a colour filter
+  pins = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 45, spiderfyOnMaxZoom: true,
+    iconCreateFunction: (c) => L.divIcon({ html: `<div class="clu">${c.getChildCount()}</div>`, className: "", iconSize: [36, 36] }) }).addTo(map);
+  area = L.layerGroup().addTo(map);
+  // after you drag or zoom the map yourself, offer to search exactly that area
+  map.on("dragend", () => { $("maparea").hidden = false; });
+  map.on("zoomend", () => { if (!fitting) $("maparea").hidden = false; });
+  map.on("popupopen", (e) => { const b = e.popup.getElement()?.querySelector(".mopen"); if (b) b.onclick = () => setFocus(b.dataset.id); });
+}
+function pinClass(id){
+  id = String(id);
+  if (isClosed(id)) return "shut";
+  if (stOf(id).opinion === "want") return "want";
+  return STAGES.indexOf(stageOf(id)) >= 1 ? "lead" : "";
+}
+function popHtml(r){
+  const pp = ppOf(r), d = divisor(r), t = distTxt(r);
+  return `<div class="mpop">${r.photos?.[0] ? `<div class="ph" style="background-image:url('${esc(r.photos[0])}')"></div>` : ""}
+    <b>${esc(r.street || "Listing " + r.id)}</b><span>${esc([r.city, cap(r.kind || ""), r.size_m2 ? r.size_m2 + " m²" : ""].filter(Boolean).join(" · "))}</span>
+    <span><span class="pp">${eur(pp ?? r.price)}</span>${d > 1 ? ` per person (${eur(r.price)} for ${d})` : r.people == null ? "" : " a month"}</span>
+    ${t ? `<small class="dist">${esc(t)}</small>` : ""}
+    <button class="btn small mopen" type="button" data-id="${r.id}">Open listing</button></div>`;
+}
+async function loadMap(force){
+  const my = ++mapToken, key = base() + qs([]) + S.ppl;
+  try {
+    await initMap();
+    setTimeout(() => map.invalidateSize(), 0);
+    if (!force && key === mapKey) return; // same filters as what's drawn: keep the map where it is
+    $("mapnote").textContent = "Loading the map…";
+    const res = await rest(`${base()}select=${MAPSEL}&${qs(["limit=3000"])}`, { Prefer: "count=exact" });
+    const rows = await res.json();
+    if (my !== mapToken) return;
+    const all = Number((res.headers.get("content-range") || "").split("/")[1]) || rows.length;
+    drawMap(rows.filter((r) => r.lat != null && r.lng != null), all);
+    mapKey = key;
+  } catch (e) { if (my === mapToken) $("mapnote").textContent = "Couldn't load the map: " + e.message; }
+}
+function drawMap(rows, all){
+  pins.clearLayers(); area.clearLayers(); map.closePopup();
+  pins.addLayers(rows.map((r) => {
+    const p = ppOf(r) ?? r.price;
+    const m = L.marker([+r.lat, +r.lng], { title: r.street || "", icon: L.divIcon({ className: "pinw", iconSize: [0, 0], html: `<span class="pin ${pinClass(r.id)}">${p != null ? eur(p) : "?"}</span>` }) });
+    return m.bindPopup(() => popHtml(r), { maxWidth: 260, minWidth: 220, autoPanPadding: [16, 16] });
+  }));
+  let b = null;
+  if (nearOn()) b = L.circle([S.loc.lat, S.loc.lng], { radius: areaKm() * 1000, color: cssVar("--accent"), weight: 1.5, fillOpacity: 0.05, interactive: false }).addTo(area).getBounds();
+  if (S.loc?.lat != null) L.marker([S.loc.lat, S.loc.lng], { interactive: false, keyboard: false, icon: L.divIcon({ className: "", html: '<div class="here"></div>', iconSize: [14, 14] }) }).addTo(area);
+  if (!b && rows.length) b = pins.getBounds();
+  fitting = true; $("maparea").hidden = true;
+  if (b?.isValid()) map.fitBounds(b, { padding: [24, 24], maxZoom: 15 }); else map.setView(NL, 7);
+  setTimeout(() => { fitting = false; }, 700);
+  const missing = all - rows.length;
+  $("mapnote").textContent = `${rows.length.toLocaleString("en-GB")} on the map${missing > 0 ? ` · ${missing} without a location aren't shown (see List)` : ""}`;
+}
+$("maparea").onclick = () => {
+  const c = map.getCenter(), b = map.getBounds();
+  const m = Math.min(c.distanceTo([b.getNorth(), c.lng]), c.distanceTo([c.lat, b.getEast()]));
+  setLoc({ name: "Map area", lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5), km: Math.max(0.5, Math.round(m / 100) / 10) });
+};
+function applyView(){
+  const v = focusId ? "list" : S.view;
+  $("viewList").setAttribute("aria-pressed", String(v === "list")); $("viewMap").setAttribute("aria-pressed", String(v === "map"));
+  $("mapwrap").hidden = v !== "map"; $("list").hidden = v === "map"; $("more").parentElement.hidden = v === "map";
+  if (v === "map" && map) setTimeout(() => map.invalidateSize(), 0);
+}
+$("viewList").onclick = () => { S.view = "list"; persist(); applyView(); };
+$("viewMap").onclick = () => { S.view = "map"; persist(); if (focusId) return $("fclear").click(); applyView(); loadMap(); };
 
 // ---- Loading ----
 let loadToken = 0;
@@ -689,13 +939,13 @@ async function load(reset){
   if (reset){ offset = 0; loaded = []; }
   $("msg").className = "msg"; $("msg").textContent = "";
   try {
-    const res = await rest(`listings?select=${SELECT}&${qs([`limit=${PAGE}`, `offset=${offset}`])}`, { Prefer: "count=exact" });
+    const res = await rest(`${base()}select=${SELECT}&${qs([`limit=${PAGE}`, `offset=${offset}`])}`, { Prefer: "count=exact" });
     const rows = await res.json();
     if (my !== loadToken) return;
     total = Number((res.headers.get("content-range") || "").split("/")[1]) || rows.length;
     loaded = loaded.concat(rows); offset += rows.length;
     renderList();
-    if (reset){ countUndistilled(); refreshEligible(); }
+    if (reset){ countUndistilled(); refreshEligible(); if (S.view === "map" && !focusId) loadMap(); }
   } catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't load listings: " + e.message; }
 }
 async function loadTags(){ try { tagCounts = await (await rest("tag_counts?select=tag,n&order=n.desc&limit=200")).json(); renderTags(); } catch {} }
@@ -738,7 +988,8 @@ async function boot(){
   await loadDeals();
   if (hashId()) setFocus(hashId(), true); // a phone alert opened one listing
   renderPanel();
-  await Promise.all([load(true), headline(), loadTags(), loadDrafts(), loadInbox()]);
+  applyView();
+  await Promise.all([load(true), headline(), loadTags(), loadDrafts(), loadInbox(), loadCities()]);
   if (focusId) $("fbar").scrollIntoView({ block: "start" });
 }
 function enterApp(){ $("lock").hidden = true; $("app").hidden = false; $("lockbtn").hidden = false; $("phonebtn").hidden = false; $("addbtn").hidden = false; $("mebtn").hidden = false; $("askbtn").hidden = false; boot().catch(() => {}); }
@@ -822,7 +1073,7 @@ $("list").addEventListener("change", (e) => {
 });
 $("selall").onchange = (e) => { for (const r of loaded) e.target.checked ? picked.add(r.id) : picked.delete(r.id); syncPicks(); };
 $("selmore").onclick = async () => {
-  try { (await (await rest(`listings?select=id&${qs(["limit=300"])}`)).json()).forEach((r) => picked.add(r.id)); syncPicks(); }
+  try { (await (await rest(`${base()}select=id&${qs(["limit=300"])}`)).json()).forEach((r) => picked.add(r.id)); syncPicks(); }
   catch (e) { $("msg").className = "msg err"; $("msg").textContent = "Couldn't select them all: " + e.message; }
 };
 const origRender = renderList;
@@ -858,7 +1109,7 @@ function setAutoBtn(){
 }
 async function refreshEligible(){
   try {
-    const rows = await (await rest(`listings?select=id&${qs(["distilled_at=not.is.null", `all_tags=not.ov.{${BLOCKING}}`, "people=lte.2", "limit=80"])}`)).json();
+    const rows = await (await rest(`${base()}select=id&${qs(["distilled_at=not.is.null", `all_tags=not.ov.{${BLOCKING}}`, "people=lte.2", "limit=80"])}`)).json();
     eligible = rows.map((r) => r.id).filter((id) => stageOf(String(id)) === "none" && !isClosed(String(id)));
   } catch { eligible = []; }
   setAutoBtn();
@@ -1180,7 +1431,7 @@ $("distill").onclick = async () => {
   const btn = $("distill"); btn.disabled = true; $("msg").className = "msg";
   try {
     $("msg").textContent = "Finding the first 25 listings that haven't been distilled…";
-    const ids = (await (await rest(`listings?select=id&${qs(["distilled_at=is.null", "limit=25"])}`)).json()).map((r) => r.id);
+    const ids = (await (await rest(`${base()}select=id&${qs(["distilled_at=is.null", "limit=25"])}`)).json()).map((r) => r.id);
     if (!ids.length){ $("msg").textContent = "Everything in this view is already distilled."; return; }
     $("msg").textContent = `Distilling ${ids.length} listings… this takes about ${Math.max(10, ids.length)} seconds.`;
     const r = await fn("distill", { method: "POST", body: JSON.stringify({ ids }) });
@@ -1319,6 +1570,7 @@ $("agenda").addEventListener("click", (e) => { const b = e.target.closest(".agop
 function setFocus(id, noLoad){
   focusId = id ? Number(id) : null;
   $("fbar").hidden = !focusId;
+  applyView();
   if (focusId){ openSet.add(String(focusId)); const l = names[focusId] || listingOf(focusId); $("ftext").textContent = `Showing one listing${l?.street ? ": " + l.street : ""}`; }
   if (!noLoad) load(true).then(() => { if (focusId) $("fbar").scrollIntoView({ block: "start" }); });
 }
