@@ -194,7 +194,7 @@ function filters(){
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
 }
-const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng";
+const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,check_reasons";
 const qs = (extra) => [...filters(), `order=${S.sort}`, ...extra].join("&");
 // with a Location and a distance, only listings within that many km (a city + distance = the whole city plus that far around it)
 const nearOn = () => S.loc && S.loc.km > 0 && S.loc.lat != null;
@@ -235,6 +235,18 @@ function statePill(id){
   const sg = stageOf(id), op = stOf(id).opinion;
   return (sg !== "none" ? `<span class="badge stage">${STAGE_LABEL[sg]}</span>` : "") + (op === "want" ? `<span class="badge ai">★ Want it</span>` : op ? `<span class="badge stage">${esc(OP_LABEL[op])}</span>` : "");
 }
+// "Something's not right" (rules on the server, no AI): a short badge; once the AI has read the ad, its verdict
+const CHECK_SHORT = [[/under €250|less than half/, "Price unusually low"], [/WhatsApp/, "WhatsApp contact"], [/abroad/, "Landlord abroad"], [/money app/, "Money app"], [/post/, "Keys by post"], [/before a viewing/, "Pay before viewing"]];
+const scammy = (r) => [...(r.tags || []), ...(r.distill_tags || [])].includes("scam-risk") || (r.distilled?.red_flags || []).length > 0;
+function checkBadge(r){
+  if (!(r.check_reasons || []).length && !scammy(r)) return "";
+  if (r.distilled_at){
+    if ([...(r.tags || []), ...(r.distill_tags || [])].includes("scam-risk")) return '<span class="badge bad">⚠ Likely scam</span>';
+    return scammy(r) ? '<span class="badge bad">⚠ AI found a problem</span>' : '<span class="badge good">✓ AI checked: looks OK</span>';
+  }
+  const short = (CHECK_SHORT.find(([re]) => re.test(r.check_reasons[0])) || [0, "Looks odd"])[1];
+  return `<span class="badge warn">⚠ ${esc(short)}</span>`;
+}
 function thumb(r){
   return r.photos?.[0] ? `<div class="thumb" style="background-image:url('${esc(r.photos[0])}')"><span class="tick">✓</span></div>` : `<div class="thumb none">No photo<span class="tick">✓</span></div>`;
 }
@@ -244,8 +256,9 @@ function cardHtml(r){
     ${thumb(r)}
     <div class="cardtop"><span class="street">${esc(r.street)}</span>${priceHtml(r)}</div>
     <div class="meta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail(r) ? `<span>${esc(avail(r))}</span>` : ""}${dt ? `<span class="dist">${esc(dt)}</span>` : ""}</div>
-    <div class="badges">${statePill(r.id)}${r.distilled_at ? '<span class="badge ai">AI summary</span>' : ""}${r.source === "manual" ? '<span class="badge stage">Added by you</span>' : ""}${bl.map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}</div>
+    <div class="badges">${checkBadge(r)}${statePill(r.id)}${r.distilled_at ? '<span class="badge ai">AI summary</span>' : ""}${r.source === "manual" ? '<span class="badge stage">Added by you</span>' : ""}${bl.map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}</div>
     ${r.distilled?.summary ? `<div class="cardsum">${esc(r.distilled.summary)}</div>` : ""}
+    ${(r.distilled?.red_flags || []).length ? `<div class="cardsum flags">⚠ ${esc(r.distilled.red_flags.join(" · "))}</div>` : ""}
   </article>`;
 }
 function renderList(){
@@ -829,7 +842,7 @@ function lpRender(){
     <div class="lphead">
       <div class="lpprice">${priceHtml(r)}${dv > 1 ? `<span class="why">${eur(r.price)} a month for ${dv}${dv < r.people ? ` (up to ${r.people} allowed)` : ""}</span>` : r.people == null ? '<span class="why">People allowed not stated</span>' : '<span class="why">a month</span>'}${r.deposit > 0 ? `<span class="why">· deposit ${eur(r.deposit)}</span>` : ""}</div>
       <div class="lpmeta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail(r) ? `<span>${esc(avail(r))}</span>` : ""}${r.posted ? `<span>${esc(postedTxt(r.posted))}</span>` : ""}${dt ? `<span class="dist">${esc(dt)}</span>` : ""}${r.gone_at && r.source !== "manual" ? "<span>No longer on Kamernet</span>" : ""}</div>
-      <div class="badges">${badgeList(r).map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}${r.reg === "unknown" ? '<span class="badge">Registration not stated</span>' : ""}</div>
+      <div class="badges">${checkBadge(r)}${badgeList(r).map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}${r.reg === "unknown" ? '<span class="badge">Registration not stated</span>' : ""}</div>
       <div id="lpLive">${liveHtml(id)}</div>
       <div class="links"><a href="${esc(mapUrl(r))}" target="_blank" rel="noopener">Map ↗</a>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${r.source === "manual" ? "The ad ↗" : "On Kamernet ↗"}</a>` : ""}</div>
     </div>
@@ -855,6 +868,7 @@ function lpRender(){
     <section class="sec" id="lp-contact">${contactSection(id)}</section>
     ${dealStarted(id) ? `<section class="sec okb" id="lp-deal">${dealSection(r)}</section>` : ""}
     <section class="sec" id="lp-ai"><h3>What the ad says ${r.distilled_at ? '<span class="badge ai">AI summary</span>' : ""}</h3>
+      ${(r.check_reasons || []).length ? `<div class="warns" style="list-style:none;padding-left:10px"><b>Checked automatically because:</b> ${esc(r.check_reasons.join(" · "))}${r.distilled_at ? "" : ". The AI reads it within 15 minutes."}</div>` : ""}
       ${dl?.summary ? `<p style="margin:0">${esc(dl.summary)}</p>` : ""}
       ${(dl?.red_flags || []).length ? `<div class="flags">⚠ ${esc(dl.red_flags.join(" · "))}</div>` : ""}
       ${buckets(r)}
