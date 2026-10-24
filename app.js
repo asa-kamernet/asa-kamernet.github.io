@@ -57,6 +57,7 @@ const plural = (n, one, many = one + "s") => `${n.toLocaleString("en-GB")} ${n =
 // ---- Saved filters and view (this device only) ----
 const S = Object.assign({
   kindF: {}, regF: {}, max: 900, q: "", dist: "any", cheap: "hide", hideContacted: false,
+  depMax: 0, depLegal: false, depKnown: false, // deposit: max € (0 = any), hide above 2 months' rent, hide when not stated
   tags: {}, // tag -> "in" (must have) | "out" (hide these)
   sort: "per_person.asc.nullslast", ppl: 4,
   loc: null,    // {name, lat, lng, km, city?, r?}: km 0 = only that city; otherwise a circle of km around the point
@@ -182,6 +183,9 @@ function filters(){
     ands.push(`or(${alts.join(",")})`);
   }
   if (S.cheap !== "show") ands.push("or(per_person.gte.250,per_person.is.null)"); // prices under €250 are almost always typos
+  if (S.depMax > 0){ if (S.depKnown) p.push(`deposit=lte.${S.depMax}`); else ands.push(`or(deposit.is.null,deposit.lte.${S.depMax})`); }
+  else if (S.depKnown) p.push("deposit=not.is.null");
+  if (S.depLegal) p.push("all_tags=not.cs.{high-deposit}"); // the reader marks deposits above about 2 months' rent
   const q = S.q.trim().replace(/[(),*"]/g, " ").trim();
   if (q) ands.push(`or(street.ilike.*${q}*,city.ilike.*${q}*)`);
   if (S.dist === "yes") p.push("distilled_at=not.is.null");
@@ -278,6 +282,9 @@ function activeFilters(){
   for (const k of Object.keys(S.regF)) f.push({ t: { ok: "Registration OK", unknown: "Registration unknown", not: "No registration" }[k], clear: () => delete S.regF[k] });
   if (S.dist !== "any") f.push({ t: S.dist === "yes" ? "Has AI summary" : "No AI summary", clear: () => { S.dist = "any"; } });
   if (S.hideContacted) f.push({ t: "Not contacted yet", clear: () => { S.hideContacted = false; } });
+  if (S.depMax) f.push({ t: `Deposit up to ${eur(S.depMax)}`, clear: () => { S.depMax = 0; } });
+  if (S.depLegal) f.push({ t: "Deposit max 2 months", clear: () => { S.depLegal = false; } });
+  if (S.depKnown) f.push({ t: "Deposit stated", clear: () => { S.depKnown = false; } });
   if (S.q.trim()) f.push({ t: `“${S.q.trim()}”`, clear: () => { S.q = ""; } });
   if (S.cheap === "show") f.push({ t: "Incl. under €250", clear: () => { S.cheap = "hide"; } });
   for (const [t, v] of Object.entries(S.tags)) f.push({ t: (v === "in" ? "✓ " : "✕ ") + label(t), out: v === "out", clear: () => delete S.tags[t] });
@@ -295,7 +302,7 @@ $("activef").onclick = (e) => {
 };
 document.addEventListener("click", (e) => { if (e.target.closest("[data-act=reset]")) resetFilters(); });
 function resetFilters(){
-  Object.assign(S, { kindF: {}, regF: {}, max: 2500, q: "", dist: "any", cheap: "hide", hideContacted: false, tags: {}, ppl: 4 });
+  Object.assign(S, { kindF: {}, regF: {}, max: 2500, q: "", dist: "any", cheap: "hide", hideContacted: false, tags: {}, ppl: 4, depMax: 0, depLegal: false, depKnown: false });
   persist(); filtersChanged(); if ($("filtDlg").open) renderFilters();
 }
 function filtersChanged(){ load(true); }
@@ -366,6 +373,10 @@ function renderFilters(){
       <label class="rng">Max per person<input type="range" id="fMax" min="300" max="2500" step="25" value="${S.max}"><output id="fMaxo">${S.max >= 2500 ? "No limit" : eur(S.max)}</output></label>
       <p class="why">A whole place for several people is split over the people sharing (never more than the ad allows).</p>
       <label class="toggle"><input type="checkbox" id="fCheap" ${S.cheap === "show" ? "checked" : ""}> Also show prices under €250 (usually typos)</label></div>
+    <div class="fsec"><h3 class="lbl">Deposit</h3>
+      <label class="rng">Max deposit<input type="range" id="fDep" min="0" max="5000" step="250" value="${S.depMax}"><output id="fDepo">${S.depMax ? eur(S.depMax) : "Any"}</output></label>
+      <label class="toggle"><input type="checkbox" id="fDepLegal" ${S.depLegal ? "checked" : ""}> Hide deposits above 2 months' rent (not allowed in new contracts)</label>
+      <label class="toggle"><input type="checkbox" id="fDepKnown" ${S.depKnown ? "checked" : ""}> Hide listings that don't state a deposit</label></div>
     <div class="fsec"><h3 class="lbl">Type</h3><div class="fchips" data-m="kindF">${[["room","Rooms"],["studio","Studios"],["apartment","Apartments"]].map(([k, t]) => `<button class="chip" type="button" data-k="${k}" ${on(S.kindF, k)}>${t}</button>`).join("")}</div></div>
     <div class="fsec"><h3 class="lbl">Registration at the address</h3><div class="fchips" data-m="regF">${[["ok","Allowed"],["unknown","Not stated"],["not","Not allowed"]].map(([k, t]) => `<button class="chip" type="button" data-k="${k}" ${on(S.regF, k)}>${t}</button>`).join("")}</div></div>
     <div class="fsec"><h3 class="lbl">AI summary</h3><div class="fchips" data-one="dist">${[["any","Any"],["yes","Has one"],["no","Not yet"]].map(([k, t]) => `<button class="chip" type="button" data-k="${k}" aria-pressed="${S.dist === k}">${t}</button>`).join("")}</div></div>
@@ -387,12 +398,15 @@ $("filtBody").addEventListener("click", (e) => {
 $("filtBody").addEventListener("input", (e) => {
   if (e.target.id === "fPpl"){ S.ppl = +e.target.value; $("fPplo").textContent = S.ppl >= 4 ? "Up to 4" : S.ppl === 1 ? "Just me" : `${S.ppl} people`; }
   if (e.target.id === "fMax"){ S.max = +e.target.value; $("fMaxo").textContent = S.max >= 2500 ? "No limit" : eur(S.max); }
+  if (e.target.id === "fDep"){ S.depMax = +e.target.value; $("fDepo").textContent = S.depMax ? eur(S.depMax) : "Any"; }
   if (e.target.id === "fQ"){ S.q = e.target.value; clearTimeout(renderFilters.t); renderFilters.t = setTimeout(() => { persist(); filtersChanged(); }, 400); }
 });
 $("filtBody").addEventListener("change", (e) => {
   if (e.target.id === "fCheap") S.cheap = e.target.checked ? "show" : "hide";
   if (e.target.id === "fFresh") S.hideContacted = e.target.checked;
-  if (["fPpl", "fMax", "fCheap", "fFresh"].includes(e.target.id)){ persist(); filtersChanged(); }
+  if (e.target.id === "fDepLegal") S.depLegal = e.target.checked;
+  if (e.target.id === "fDepKnown") S.depKnown = e.target.checked;
+  if (["fPpl", "fMax", "fCheap", "fFresh", "fDep", "fDepLegal", "fDepKnown"].includes(e.target.id)){ persist(); filtersChanged(); }
 });
 async function loadTags(){ try { tagCounts = await (await rest("tag_counts?select=tag,n&order=n.desc&limit=200")).json(); } catch {} }
 
