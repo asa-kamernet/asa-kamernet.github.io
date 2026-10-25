@@ -1115,7 +1115,7 @@ function draftSection(id){
       <textarea id="dText" aria-label="Message" ${sending ? "disabled" : ""}>${esc(draftEdits[d.id] ?? d.draft)}</textarea><span class="saved" id="dSaved"></span>
       ${send}
       ${sending ? "" : `<div class="btnrow"><button class="btn ghost" type="button" data-d="done" data-ch="${ch}">I sent it</button><button class="btn ghost danger" type="button" data-d="del">Delete</button></div>
-      <details data-k="redo"><summary>Change it with AI</summary><div class="fix" style="margin-top:6px"><input id="dNote" placeholder="e.g. shorter, say I can come Saturday, don't mention Klorane">
+      <details data-k="redo"><summary>Change it with AI</summary><div class="fix" style="margin-top:6px"><input id="dNote" placeholder="e.g. shorter, say I can come Saturday, don't mention who comes along">
         <label class="toggle small"><input type="checkbox" id="dRem" checked> Remember my answers for next time</label>
         <label class="toggle small"><input type="checkbox" id="dAlw"> Always write like this</label>
         <button class="btn ghost" type="button" data-d="redo">Rewrite</button></div></details>`}
@@ -1353,7 +1353,7 @@ const CHECKS = [
   ["seen", "I (or someone I trust) saw the place in person"],
   ["landlord_id", "The landlord's name matches the contract and the bank account"],
   ["reg_ok", "Registration (inschrijving) at this address is allowed, in writing"],
-  ["two_people", "Klorane and I are both allowed to live there"],
+  ["two_people", "Everyone moving in with me is allowed to live there"],
   ["contract_read", "I read the contract (and the AI check) and asked about anything unclear"],
   ["no_fee", "No agency fee is charged to me (not allowed in the Netherlands)"],
 ];
