@@ -1664,7 +1664,13 @@ async function drawHealth(){
     Number(h.gmail_version || 0) >= 2 && gmailOk() ? line(h.failed_emails ? "bad" : "ok", `Send for me (email): ready${h.queued_emails ? ` · ${h.queued_emails} going out` : ""}${h.failed_emails ? ` · ${h.failed_emails} failed (open them in Inbox)` : ""}`) : line("warn", `Send for me (email): ${h.gmail_ping ? "needs the newer Gmail connection (Claude updates it in a chat)" : notYet}`),
     !h.kn_sender_ping ? line("warn", "Send for me (Kamernet): not set up yet (Claude installs the helper in Chrome on your PC, in a chat)")
       : line(h.kn_failed ? "bad" : knOnline() ? "ok" : "warn", `Send for me (Kamernet): ${knOnline() ? "ready, your PC is on" : `your PC is off or Chrome is closed (last seen ${ago(h.kn_sender_ping)}); messages wait until it's back`}${h.kn_queued ? ` · ${h.kn_queued} going out` : ""}${h.kn_failed ? ` · ${h.kn_failed} failed (open them in Inbox)` : ""}${h.kn_sender_last_sent ? ` · last sent ${ago(h.kn_sender_last_sent)}` : ""}`),
-    h.phone_last ? line("ok", `WhatsApp from landlords (your phone): last one ${ago(h.phone_last)}`)
+    // since 25 Oct 2026 the Chrome helper reads WhatsApp Web on the PC (the phone forwarder never worked)
+    h.wa_read && Date.now() - Date.parse(h.wa_read) < 10 * 60000
+      ? line(h.wa_read_error ? "bad" : "ok", h.wa_read_error ? `WhatsApp from landlords: your PC can't read WhatsApp Web (${esc(String(h.wa_read_error).slice(0, 120))}). Open web.whatsapp.com in Chrome on your PC and scan the QR code with your phone if it asks.`
+        : `WhatsApp from landlords: read from WhatsApp Web on your PC, checked ${ago(h.wa_read)}${h.phone_last ? ` · last one ${ago(h.phone_last)}` : ""}. Chats stay unread on your phone.`)
+      : h.wa_read ? line("warn", `WhatsApp from landlords: your PC is off or Chrome is closed (last read ${ago(h.wa_read)}); new ones come in when it's back`)
+      : Number(String(h.kn_sender_version || "0").replace(/^(\d+)\.(\d+).*/, "$1.$2")) < 2.1 && h.kn_sender_ping ? line("warn", "WhatsApp from landlords: the PC helper needs a restart to start reading WhatsApp Web (Chrome: restart it, or reload the helper in chrome://extensions)")
+      : h.phone_last ? line("ok", `WhatsApp from landlords (your phone): last one ${ago(h.phone_last)}`)
       : h.phone_seen ? line("bad", `WhatsApp from landlords (your phone): MacroDroid reached Kamernet Live ${ago(h.phone_seen)} but the message was unusable (${esc(String(h.phone_result || "unknown").slice(0, 120))})`)
       : line("warn", `WhatsApp from landlords (your phone): MacroDroid has never reached Kamernet Live`),
     inbox.push_devices ? line("ok", `Alerts on ${plural(inbox.push_devices, "device")}${mine ? " (this one too)" : " (not this one)"}${h.last_push ? ` · last alert ${ago(h.last_push)}` : ""}`) : line("warn", "Alerts: no phone has them on yet"),
