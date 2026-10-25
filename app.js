@@ -5,7 +5,8 @@
 //   Inbox     messages waiting to be sent, new landlord messages, messages that need a listing
 //   More      alerts and health, facts about you, add a place, lock
 // Tapping any listing opens its page: status, your message, the conversation, the landlord, the deal, the AI summary.
-// NOTHING here sends to a landlord except "Send for me", one message per tap after an "Are you sure?": email goes out through
+// NOTHING here sends to a landlord except "Send for me" (one message) and "Send all" in Inbox (every ready email and Kamernet
+// draft; Asa, 25 Oct 2026), each after an "Are you sure?": email goes out through
 // the Gmail script, Kamernet through the "Kamernet Live sender" helper in Chrome on Asa's PC (kamernet-sender-extension).
 
 // ---- Settings (public values only; the passcode is typed on the site and never stored in this file) ----
@@ -844,12 +845,44 @@ async function renderInbox(){
       <div class="body">${esc(i.body || "")}</div>
       <div class="row"><input class="ifind" placeholder="Street name"><button class="btn small ifindb" type="button">Find</button></div>
       <div class="btnrow icands"></div><div class="btnrow"><button class="btn ghost small danger iign" type="button">Not about housing</button><small class="ist why"></small></div></div>`).join("")}</section>` : "",
-    `<section class="group"><h2>Ready to send <small>${ds.length ? "check each one, then send it" : ""}</small></h2>${ds.length ? ds.map(dcard).join("") : '<p class="why">Nothing waiting. Messages Claude writes for you land here.</p>'}</section>`,
+    `<section class="group"><h2>Ready to send <small>${ds.length ? "check each one, then send it" : ""}</small></h2>${sendAllPlan(ds).go.length ? `<div class="btnrow"><button class="btn small sendall" type="button">Send all (${sendAllPlan(ds).go.length})</button></div>` : ""}${ds.length ? ds.map(dcard).join("") : '<p class="why">Nothing waiting. Messages Claude writes for you land here.</p>'}</section>`,
     latest.length ? `<section class="group"><h2>Latest from landlords</h2>${latest.map(([id, t]) => leadCard(id, `${ago(t.last_at)} via ${CHAN[t.last_channel] || t.last_channel}: “${t.last_body.slice(0, 120)}${t.last_body.length > 120 ? "…" : ""}”`, "", "conv")).join("")}</section>` : "",
   ].join("");
   renderBadges();
 }
+// Send all (Asa, 25 Oct 2026): one tap sends every ready email and Kamernet draft. WhatsApp, site forms and "other" can't be
+// sent for him (WhatsApp: ban risk on his own number), so they stay for him to copy; drafts with [YOUR ANSWER …] are skipped.
+function sendAllPlan(ds){
+  const go = [], skip = [];
+  for (const d of ds){
+    if (isSending(d)) continue;
+    const ch = chanOf(d), text = draftEdits[d.id] ?? d.draft;
+    if (/\[YOUR ANSWER/i.test(text)) skip.push([d, "has [YOUR ANSWER …] to fill in"]);
+    else if (ch === "email" && contacts[d.listing_id]?.email) go.push([d, ch, text]);
+    else if (ch === "kamernet") go.push([d, ch, text]);
+    else skip.push([d, ch === "whatsapp" ? "WhatsApp: copy it yourself" : "only by copy and open"]);
+  }
+  return { go, skip };
+}
+async function sendAll(){
+  const { go, skip } = sendAllPlan(unsent().filter((d) => !isClosed(String(d.listing_id))));
+  if (!go.length) return toast("Nothing here can be sent for you.");
+  const nm = (n) => plural(go.filter(([, ch]) => ch === n).length, "message");
+  const kn = go.some(([, ch]) => ch === "kamernet");
+  if (!await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${nm("email")} by email (from your Gmail within a minute), ${nm("kamernet")} on Kamernet (Chrome on your PC, one every 20-40 seconds${kn && !knOnline() ? "; <b>your PC seems off</b>, so they go out once it's on" : ""}).</p>${skip.length ? `<p class="why">Not sent, these stay here: ${skip.map(([d, why]) => `${esc(cache[d.listing_id]?.street || "a listing")} (${why})`).join(", ")}.</p>` : ""}` })) return;
+  let ok = 0; const bad = [];
+  for (const [d, ch, text] of go){
+    try {
+      await post(ch === "email" ? "deal" : "kn-send", ch === "email" ? { action: "send_email", application_id: d.id, draft: text } : { action: "queue", application_id: d.id, draft: text });
+      delete draftEdits[d.id]; ok++;
+    } catch (err) { bad.push(`${cache[d.listing_id]?.street || "a listing"}: ${err.message}`); }
+  }
+  if (kn) window.postMessage({ type: "kn-sender-poke" }, location.origin);
+  await loadDrafts(); renderAll(); watchSending();
+  toast(`${plural(ok, "message")} on the way.${bad.length ? " Couldn't queue: " + bad.join("; ") : ""}${skip.length ? ` ${skip.length} left for you to send yourself.` : ""}`, null, !!bad.length);
+}
 $("inboxv").addEventListener("click", async (e) => {
+  if (e.target.closest(".sendall")) return sendAll();
   const it = e.target.closest(".ib");
   if (!it){ const c = e.target.closest("[data-id]"); if (c) openListing(Number(c.dataset.id), c.dataset.sec); return; }
   const iid = Number(it.dataset.iid), st = it.querySelector(".ist"), cands = it.querySelector(".icands");
@@ -1048,7 +1081,7 @@ function chanOf(d){ // the channel the landlord last used; a first message goes 
 const waUrl = (phone, text) => `https://wa.me/${String(phone).replace(/\D/g, "").replace(/^00/, "").replace(/^0(?=6)/, "31")}?text=${encodeURIComponent(text)}`;
 const kamernetUrl = (d) => d.kind === "reply" && d.conv_id ? `https://kamernet.nl/en/my-messages/default/conversation/${d.conv_id}` : `https://kamernet.nl/en/react-to-listing/${d.listing_id}`;
 const WHY = {
-  kamernet: "Send for me types it into Kamernet and presses Send for you, using Chrome on your PC (where you're logged in). The PC must be on with Chrome open. Kamernet's rules don't allow this, so there's a small risk to your account; it only ever sends the one message you tap.",
+  kamernet: "Send for me types it into Kamernet and presses Send for you, using Chrome on your PC (where you're logged in). The PC must be on with Chrome open. Kamernet's rules don't allow this, so there's a small risk to your account; it only sends what you tap (one message, or Send all in Inbox), one every 20-40 seconds.",
   whatsapp: "WhatsApp can ban your number if a robot sends from it, so you send it yourself.",
   site: "This site only lets you reach the landlord through its own contact form, so you paste it there and press send yourself.",
 };
