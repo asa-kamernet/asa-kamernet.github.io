@@ -932,7 +932,9 @@ function lpRender(){
         <div class="draft" style="margin-top:6px"><textarea id="logBody" rows="3" placeholder="Paste the message here"></textarea>
         <div class="btnrow"><select id="logDir" style="width:auto"><option value="in">They wrote this</option><option value="out">I sent this</option></select>
           <select id="logChan" style="width:auto">${Object.entries(CHAN).map(([k, v]) => `<option value="${k}" ${(threads[id]?.last_channel || (r.source === "manual" ? (contacts[id]?.email ? "email" : "whatsapp") : r.source === "kamernet" ? "kamernet" : "site")) === k ? "selected" : ""}>${v}</option>`).join("")}</select>
-          <button class="btn ghost" type="button" data-a="log">Add it</button></div></div></details>
+          <button class="btn ghost" type="button" data-a="log">Add it</button></div>
+        <div id="logWho"></div>
+        <p class="why" style="margin:6px 0 0">Old WhatsApp messages: in WhatsApp open the chat, ⋮ › More › Export chat › Without media, copy the text and paste it here. Every message comes in with its own time.</p></div></details>
     </section>
     <section class="sec" id="lp-contact">${contactSection(id)}</section>
     ${dealStarted(id) ? `<section class="sec okb" id="lp-deal">${dealSection(r)}</section>` : ""}
@@ -1106,6 +1108,23 @@ function threadHtml(id){
     ? data.messages.map((m) => `<div class="bub ${m.direction}"><div class="bm">${m.direction === "in" ? "Landlord" : "Me"} · ${esc(CHAN[m.channel] || m.channel)} · ${esc(when(m.at))}</div>${esc(m.body)}</div>`).join("")
     : '<p class="why">No messages yet. Landlord messages from Kamernet, email and WhatsApp land here by themselves.</p>';
 }
+// An exported WhatsApp chat: "19/10/2026, 14:03 - Name: text" (Android) or "[19-10-2026 14:03:22] Name: text" (iPhone).
+// Lines without a date continue the message above. Day comes first unless that can't be (Dutch/European phones).
+function parseChatExport(text){
+  const re = /^‎?\[?(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4}),?\s+(\d{1,2})[:.](\d{2})(?:[:.]\d{2})?\s*([AaPp]\.?[Mm]\.?)?\]?\s*(?:[-–]\s*)?([^:]{1,60}?):\s(.*)$/;
+  const out = [];
+  for (const line of text.split(/\r?\n/)){
+    const m = line.match(re);
+    if (!m){ if (out.length && line.trim()) out[out.length - 1].text += "\n" + line.trim(); continue; }
+    let [, a, b, y, h, mi, ap, who, body] = m;
+    let d = +a, mo = +b; if (mo > 12 && d <= 12) [d, mo] = [mo, d];
+    let hr = +h; if (ap){ const pm = /p/i.test(ap); if (pm && hr < 12) hr += 12; if (!pm && hr === 12) hr = 0; }
+    const yr = y.length === 2 ? 2000 + +y : +y;
+    out.push({ who: who.replace(/‎/g, "").trim(), text: body.trim(), at: new Date(yr, mo - 1, d, hr, +mi).toISOString() });
+  }
+  return out.map((x) => ({ ...x, text: x.text.trim() })).filter((x) => x.text && !/^<(media|media weggelaten|media omitted)[^>]*>$|omitted$|weggelaten$/i.test(x.text));
+}
+
 async function loadThread(id){
   try { threadCache[id] = await fn(`status?thread=${id}`); } catch { threadCache[id] = { messages: [] }; }
   if (lpId === id && $("lpMsgs")){ $("lpMsgs").innerHTML = threadHtml(id); $("lpMsgs").scrollTop = 1e6; }
@@ -1192,8 +1211,30 @@ $("lpBody").addEventListener("click", async (e) => {
       if (r.skipped){ lpRender(); return toast("Nothing to answer: the last message is yours."); }
       await loadDrafts(); lpRender(); renderAll();
       toast(r.notes?.length ? "Written. Claude left you a question or note above the message." : "Written. Check it, then send it.");
-    } else if (b.dataset.a === "log"){
+    } else if (b.dataset.a === "log" || b.dataset.me){
       const body = $("logBody").value.trim(); if (!body) return toast("Paste or write the message first.", null, true);
+      const chat = parseChatExport(body);
+      if (chat.length >= 2){ // a whole exported WhatsApp chat: each message keeps its own time and side
+        const names = [...new Set(chat.map((m) => m.who))];
+        if (!b.dataset.me && names.length > 1){
+          $("logWho").innerHTML = `<p class="why" style="margin:6px 0">This is a chat export (${plural(chat.length, "message")}). Which one is you?</p><div class="opts">${names.map((n) => `<button class="btn ghost small" type="button" data-me="${esc(n)}">${esc(n)}</button>`).join("")}</div>`;
+          return;
+        }
+        const me = b.dataset.me || "";
+        await loadThread(id);
+        const have = new Set((threadCache[id]?.messages || []).map((m) => `${m.direction}|${String(m.body).trim()}`));
+        let added = 0, r;
+        for (const m of chat){
+          const direction = m.who === me ? "out" : "in";
+          if (have.has(`${direction}|${m.text}`)) continue;
+          r = await post("status", { action: "log", id: Number(id), direction, channel: $("logChan").value, body: m.text, at: m.at });
+          if (r.row) statuses[id] = r.row;
+          added++;
+        }
+        $("logBody").value = "";
+        await Promise.all([loadThreads(), loadThread(id)]); lpRender(); renderAll();
+        return toast(added ? `Added ${plural(added, "message")} from the chat${added < chat.length ? ` (${chat.length - added} were already here)` : ""}.` : "All these messages were already here.");
+      }
       const r = await post("status", { action: "log", id: Number(id), direction: $("logDir").value, channel: $("logChan").value, body });
       if (r.row) statuses[id] = r.row;
       await Promise.all([loadThreads(), loadThread(id)]); lpRender(); renderAll(); toast("Added to the conversation.");
