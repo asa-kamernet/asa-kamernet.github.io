@@ -831,7 +831,7 @@ async function renderInbox(){
   const sending = ds.filter(isSending);
   $("inboxsub").textContent = `${plural(ds.length - sending.length, "message")} to send${inbox?.open.length ? ` · ${inbox.open.length} to sort` : ""}`;
   const dcard = (d) => {
-    const r = cache[d.listing_id] || {}, ch = chanOf(d), st = isSending(d) ? (d.send_status.startsWith("kn_") ? "Sending on Kamernet…" : "Sending by email…") : d.send_status === "failed" ? "Couldn't send: open it" : `${d.kind === "reply" ? "Reply" : "First message"} · ${CHAN[ch] || ch}`;
+    const r = cache[d.listing_id] || {}, ch = chanOf(d), st = isSending(d) ? (d.send_status.startsWith("kn_") ? `Sending (${CHAN[ch] || ch})…` : "Sending by email…") : d.send_status === "failed" ? "Couldn't send: open it" : `${d.kind === "reply" ? "Reply" : "First message"} · ${CHAN[ch] || ch}`;
     return `<article class="lead${d.send_status === "failed" ? " move" : ""}" data-id="${d.listing_id}" data-sec="draft" tabindex="0" role="button">${thumb(r)}
       <div class="cardtop"><span class="street">${esc(r.street || "A listing")}</span></div>
       <div class="badges"><span class="badge stage">${esc(st)}</span><span class="badge">${esc(r.city || "")}</span></div>
@@ -850,36 +850,41 @@ async function renderInbox(){
   ].join("");
   renderBadges();
 }
-// Send all (Asa, 25 Oct 2026): one tap sends every ready email and Kamernet draft. WhatsApp, site forms and "other" can't be
-// sent for him (WhatsApp: ban risk on his own number), so they stay for him to copy; drafts with [YOUR ANSWER …] are skipped.
+// Send all (Asa, 25 Oct 2026): one tap sends EVERY ready draft. Email through the Gmail script; Kamernet, WhatsApp (WhatsApp
+// Web; Asa accepts the ban risk) and the ad's own contact form through the helper in Chrome on his PC, one at a time. Drafts with
+// [YOUR ANSWER …] are filled in by Claude first (replydraft fill). Only a draft with no way to reach the landlord stays.
 function sendAllPlan(ds){
   const go = [], skip = [];
   for (const d of ds){
     if (isSending(d)) continue;
-    const ch = chanOf(d), text = draftEdits[d.id] ?? d.draft;
-    if (/\[YOUR ANSWER/i.test(text)) skip.push([d, "has [YOUR ANSWER …] to fill in"]);
-    else if (ch === "email" && contacts[d.listing_id]?.email) go.push([d, ch, text]);
-    else if (ch === "kamernet") go.push([d, ch, text]);
-    else skip.push([d, ch === "whatsapp" ? "WhatsApp: copy it yourself" : "only by copy and open"]);
+    const ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, c = contacts[d.listing_id] || {};
+    if (ch === "email" && c.email || ch === "kamernet" || ch === "whatsapp" && c.phone || ch === "site" && cache[d.listing_id]?.url) go.push([d, ch, text]);
+    else skip.push([d, "no email, phone or link saved for the landlord"]);
   }
   return { go, skip };
 }
 async function sendAll(){
   const { go, skip } = sendAllPlan(unsent().filter((d) => !isClosed(String(d.listing_id))));
-  if (!go.length) return toast("Nothing here can be sent for you.");
+  if (!go.length) return toast("Nothing here can be sent: add the landlord's email or phone first.");
   const nm = (n) => plural(go.filter(([, ch]) => ch === n).length, "message");
-  const kn = go.some(([, ch]) => ch === "kamernet");
-  if (!await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${nm("email")} by email (from your Gmail within a minute), ${nm("kamernet")} on Kamernet (Chrome on your PC, one every 20-40 seconds${kn && !knOnline() ? "; <b>your PC seems off</b>, so they go out once it's on" : ""}).</p>${skip.length ? `<p class="why">Not sent, these stay here: ${skip.map(([d, why]) => `${esc(cache[d.listing_id]?.street || "a listing")} (${why})`).join(", ")}.</p>` : ""}` })) return;
+  const pc = go.some(([, ch]) => ch !== "email"), fills = go.filter(([, , t]) => /\[YOUR ANSWER/i.test(t)).length;
+  const parts = [["email", "by email"], ["kamernet", "on Kamernet"], ["whatsapp", "on WhatsApp"], ["site", "through the ad's own site"]].filter(([k]) => go.some(([, ch]) => ch === k)).map(([k, w]) => `${nm(k)} ${w}`);
+  if (!await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${parts.join(", ")}. Email goes from your Gmail within a minute; the rest from Chrome on your PC, one every 20-40 seconds${pc && !knOnline() ? " (<b>your PC seems off</b>, so they go out once it's on)" : ""}.</p>${fills ? `<p>${plural(fills, "message")} still had [YOUR ANSWER …] parts: Claude fills them in from your facts first, or writes around what it doesn't know.</p>` : ""}${skip.length ? `<p class="why">Can't be sent, no way to reach the landlord saved: ${skip.map(([d]) => esc(cache[d.listing_id]?.street || "a listing")).join(", ")}.</p>` : ""}` })) return;
   let ok = 0; const bad = [];
-  for (const [d, ch, text] of go){
+  toast(`Sending ${plural(go.length, "message")}…`);
+  for (let [d, ch, text] of go){
     try {
-      await post(ch === "email" ? "deal" : "kn-send", ch === "email" ? { action: "send_email", application_id: d.id, draft: text } : { action: "queue", application_id: d.id, draft: text });
+      if (/\[YOUR ANSWER/i.test(text)){
+        await saveDraftNow(d.id);
+        text = (await post("replydraft", { action: "redo", application_id: d.id, fill: true })).message;
+      }
+      await post(ch === "email" ? "deal" : "kn-send", ch === "email" ? { action: "send_email", application_id: d.id, draft: text } : { action: "queue", application_id: d.id, draft: text, channel: ch });
       delete draftEdits[d.id]; ok++;
     } catch (err) { bad.push(`${cache[d.listing_id]?.street || "a listing"}: ${err.message}`); }
   }
-  if (kn) window.postMessage({ type: "kn-sender-poke" }, location.origin);
+  if (pc) window.postMessage({ type: "kn-sender-poke" }, location.origin);
   await loadDrafts(); renderAll(); watchSending();
-  toast(`${plural(ok, "message")} on the way.${bad.length ? " Couldn't queue: " + bad.join("; ") : ""}${skip.length ? ` ${skip.length} left for you to send yourself.` : ""}`, null, !!bad.length);
+  toast(`${plural(ok, "message")} on the way.${bad.length ? " Couldn't send: " + bad.join("; ") : ""}${skip.length ? ` ${skip.length} have no landlord contact saved.` : ""}`, null, !!bad.length);
 }
 $("inboxv").addEventListener("click", async (e) => {
   if (e.target.closest(".sendall")) return sendAll();
