@@ -340,29 +340,37 @@ function filtersChanged(){ load(true); }
 
 // ---- Loading the list ----
 let loadToken = 0;
-async function load(reset){
+// keep > 0 = quiet refresh: ask the server again for the same number of rows, so places that no longer match the
+// filters (just summarized, marked closed, contacted...) drop out and new ones appear, without losing your place
+async function load(reset, keep = 0){
   const my = ++loadToken;
-  if (reset){ offset = 0; topN = 0; loaded = []; if (picked.size){ picked.clear(); } }
+  const quiet = reset && keep > 0;
+  if (reset && !quiet){ offset = 0; topN = 0; loaded = []; if (picked.size){ picked.clear(); } }
   try {
+    const off = reset ? 0 : offset;
     const ids = S.sort === "status" ? statusIds() : [];
     let top = [];
     if (ids.length && reset){ // your leads that match the filters, in status order
       top = await (await rest(`${base()}select=${SELECT}&${qs([`id=in.(${ids.join(",")})`])}`)).json();
       const k = (r) => statusRank(r.id) * (S.dir === "asc" ? -1 : 1);
       top.sort((a, b) => k(b) - k(a));
-      topN = top.length;
     }
-    const res = await rest(`${base()}select=${SELECT}&${qs([...(ids.length ? [`id=not.in.(${ids.join(",")})`] : []), `limit=${PAGE}`, `offset=${offset}`])}`, { Prefer: "count=exact" });
+    const res = await rest(`${base()}select=${SELECT}&${qs([...(ids.length ? [`id=not.in.(${ids.join(",")})`] : []), `limit=${quiet ? keep : PAGE}`, `offset=${off}`])}`, { Prefer: "count=exact" });
     const rows = await res.json();
     if (my !== loadToken) return;
+    if (reset){ loaded = []; topN = top.length; }
     total = topN + countOf(res, rows.length);
     for (const r of [...top, ...rows]) cache[r.id] = r;
-    loaded = loaded.concat(top, rows); offset += rows.length;
+    loaded = loaded.concat(top, rows); offset = off + rows.length;
+    if (quiet && picked.size){ const still = new Set(loaded.map((r) => r.id)); for (const id of [...picked]) if (!still.has(id)) picked.delete(id); syncSelect(); }
+    const y = scrollY;
     renderList();
+    if (quiet) scrollTo(0, y);
     if ($("filtDlg").open) $("filtDone").textContent = `Show ${plural(total, "listing")}`;
     if (reset && S.view === "map") loadMap();
-  } catch (e) { $("count").textContent = "Couldn't load listings: " + e.message; }
+  } catch (e) { if (!quiet) $("count").textContent = "Couldn't load listings: " + e.message; }
 }
+const reloadList = () => load(true, Math.max(PAGE, loaded.length - topN));
 $("more").onclick = () => load(false);
 $("sort").onchange = (e) => { S.sort = e.target.value; S.dir = SORTS[S.sort][1]; drawSortDir(); persist(); load(true); };
 $("sortdir").onclick = () => { S.dir = S.dir === "asc" ? "desc" : "asc"; drawSortDir(); persist(); load(true); toast(SORTS[S.sort][S.dir === "asc" ? 2 : 3]); };
@@ -711,7 +719,7 @@ async function summarize(ids){
   toast(`Reading ${plural(ids.length, "listing")}…`);
   try {
     const r = await post("distill", { ids });
-    await Promise.all([load(true), headline(), loadTags()]);
+    await Promise.all([reloadList(), headline(), loadTags()]);
     for (const id of ids) if (cache[id]) await refreshRow(id);
     toast(`${plural(r.distilled, "AI summary", "AI summaries")} done${r.failed?.length ? `, ${r.failed.length} failed (${r.failed[0].error})` : ""} · cost ${euro(r.total_cost_usd)}`, null, !!r.failed?.length && !r.distilled);
   } catch (e) { toast("AI summary failed: " + e.message, null, true); }
@@ -727,6 +735,11 @@ async function ensureRows(ids){
   const need = ids.filter((id) => !cache[id]);
   for (let i = 0; i < need.length; i += 80){
     try { for (const r of await (await rest(`listings?select=${SELECT}&id=in.(${need.slice(i, i + 80).join(",")})`)).json()) cache[r.id] = r; } catch {}
+  }
+}
+async function refreshRows(ids){ // fetch these cards again (an AI summary or a check may have changed them)
+  for (let i = 0; i < ids.length; i += 80){
+    try { for (const r of await (await rest(`listings?select=${SELECT}&id=in.(${ids.slice(i, i + 80).join(",")})`)).json()) cache[r.id] = r; } catch {}
   }
 }
 async function refreshRow(id){
@@ -884,7 +897,7 @@ async function openListing(id, sec){
   if (sec) setTimeout(() => { const el = $("lp-" + sec); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
 }
 $("lpBack").onclick = () => $("lp").close();
-$("lp").addEventListener("close", () => { lpId = null; history.replaceState(null, "", location.pathname + location.search); renderAll(); });
+$("lp").addEventListener("close", () => { lpId = null; history.replaceState(null, "", location.pathname + location.search); renderAll(); reloadList(); });
 function lpRender(){
   const id = lpId; if (!id) return;
   const r = cache[id], x = stOf(id), sg = stageOf(id), closed = isClosed(id), dl = r.distilled;
@@ -1126,7 +1139,7 @@ $("lpBody").addEventListener("change", async (e) => {
 async function setStand(id, set){
   const r = await post("status", { id: Number(id), set });
   if (r.row) statuses[String(id)] = r.row;
-  lpRender(); renderAll();
+  lpRender(); renderAll(); reloadList();
 }
 function standUndo(id, before){
   return { label: "Undo", fn: () => setStand(id, { stage: before.stage || "none", opinion: before.opinion ?? null, closed: before.closed ?? null, viewing_at: before.viewing_at ?? null }) };
@@ -1678,11 +1691,18 @@ function renderAll(){
   if (!$("v-inbox").hidden) renderInbox();
   renderBadges();
 }
-async function refreshAll(){
-  await Promise.all([loadStatuses(), loadThreads(), loadDrafts(), loadDeals(), loadInbox(), loadSites()]);
-  if (lpId){ await loadThread(lpId); lpRender(); }
-  renderAll();
+// fetch everything again: statuses, messages, drafts, deals, inbox, the Find list and your leads' cards.
+// quiet = the timer did it: don't redraw an open listing while you're typing in it
+async function refreshAll(quiet = false){
+  // one part failing (a slow function, a bad answer) must not stop the rest
+  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadDeals(), loadInbox(), loadSites(), headline(), refreshRows(leadIds())]);
+  const typing = document.activeElement?.closest?.("#lp") && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  try { if (lpId){ await loadThread(lpId); if (!(quiet && typing)) lpRender(); } } catch {}
+  try { renderAll(); } catch {}
+  await reloadList();
 }
+// new info shows up by itself: every 30 s while the site is open on screen
+setInterval(() => { if (document.visibilityState === "visible" && pass && !$("app").hidden) refreshAll(true).catch(() => {}); }, 30000);
 const hashId = () => (location.hash.match(/l=(\d+)/) || [])[1] || null;
 const openSites = () => { showTab("more"); setTimeout(() => $("sitesPanel").scrollIntoView({ behavior: "smooth" }), 50); history.replaceState(null, "", location.pathname + location.search); };
 window.addEventListener("hashchange", () => { if (pass && location.hash === "#sites") openSites(); else if (pass && hashId() && hashId() !== lpId) openListing(hashId()); });
