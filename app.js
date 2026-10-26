@@ -49,7 +49,7 @@ const euro = (usd) => { const e = Number(usd || 0) * USD_EUR; return "€" + (e 
 const cap = (s) => String(s ?? "").replace(/^./, (c) => c.toUpperCase());
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
 const when = (t) => new Date(t).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const day = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+const day = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(s.slice(0, 4) !== String(new Date().getFullYear()) ? { year: "numeric" } : {}) }) : "";
 const dayTxt = (t) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const ago = (t) => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : Math.round(m / 1440) === 1 ? "yesterday" : `${Math.round(m / 1440)} days ago`; };
 const fresh = (t, min) => !!t && Date.now() - Date.parse(t) < min * 60000;
@@ -100,6 +100,16 @@ let statuses = {}, threads = {}, deals = {}, contacts = {}, drafts = [], inbox =
 const cache = {};                // listing id -> row (from any list, kept for My leads, Inbox and the listing page)
 let loaded = [], total = 0, offset = 0, topN = 0;
 const stOf = (id) => statuses[id] || {};
+// what the landlord said in messages (my_status.msg_facts) goes on top of the ad's values; r._ad keeps the ad itself
+const MF_KEYS = ["price", "deposit", "available_from", "available_until", "people", "utilities_incl"];
+const MF_LABEL = { price: "Rent", deposit: "Deposit", available_from: "Available from", available_until: "Available until", people: "People allowed", utilities_incl: "Bills included" };
+function eff(r){
+  const mf = r && stOf(String(r.id)).msg_facts;
+  if (!mf) return r;
+  const o = { ...r, _ad: r, _mf: mf };
+  for (const k of MF_KEYS) if (mf[k]) o[k] = mf[k].v;
+  return o;
+}
 // a booked viewing whose time has passed counts as viewed
 const stageOf = (id) => { const x = stOf(id), sg = x.stage || "none"; return sg === "booked" && x.viewing_at && Date.parse(x.viewing_at) < Date.now() ? "viewed" : sg; };
 const isClosed = (id) => !!stOf(id).closed || stOf(id).opinion === "no";
@@ -254,13 +264,14 @@ function badgeList(r){
   const rank = (t) => ({ bad: 0, good: 1, warn: 2 }[toneOf(t)] ?? 3);
   return all.filter((t) => !["no-pets", "no-smoking"].includes(t)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
-const avail = (r) => r.available_from ? (r.available_from <= new Date().toISOString().slice(0, 10) ? "Available now" : "From " + day(r.available_from)) + (r.available_until ? " until " + day(r.available_until) : "") : "";
+const avail = (r) => r.available_from ? (r.available_from <= new Date().toISOString().slice(0, 10) ? "Available now" : "From " + day(r.available_from)) + (r.available_until ? " until " + day(r.available_until) : "") : r.available_until ? "Until " + day(r.available_until) : "";
 function postedTxt(p){
   if (!p) return "";
   const d = Math.floor((Date.now() - Date.parse(p.slice(0, 10) + "T12:00:00Z")) / 86400000);
   return d <= 0 ? "Posted today" : d === 1 ? "Posted yesterday" : d < 14 ? `Posted ${d} days ago` : "Posted " + day(p.slice(0, 10));
 }
 function priceHtml(r){
+  r = eff(r);
   const pp = ppOf(r);
   return `<span class="price">${eur(pp ?? r.price)}<small>${pp != null && divisor(r) > 1 ? " pp" : pp != null ? " /mo" : " total"}</small></span>`;
 }
@@ -585,6 +596,7 @@ function pinClass(id){
   return STAGES.indexOf(stageOf(id)) >= 1 ? "lead" : "";
 }
 function popHtml(r){
+  r = eff(r);
   const pp = ppOf(r), d = divisor(r), t = distTxt(r);
   return `<div class="mpop">${r.photos?.[0] ? `<div class="ph" style="background-image:url('${esc(r.photos[0])}')"></div>` : ""}
     <b>${esc(r.street || "A listing")}</b><span>${esc([r.city, cap(r.kind || ""), r.size_m2 ? r.size_m2 + " m²" : ""].filter(Boolean).join(" · "))}</span>
@@ -609,7 +621,7 @@ async function loadMap(force){
 function drawMap(rows, all){
   pins.clearLayers(); area.clearLayers(); map.closePopup();
   pins.addLayers(rows.map((r) => {
-    const p = ppOf(r) ?? r.price;
+    const p = ppOf(eff(r)) ?? eff(r).price;
     return L.marker([+r.lat, +r.lng], { title: r.street || "", icon: L.divIcon({ className: "pinw", iconSize: [0, 0], html: `<span class="pin ${pinClass(r.id)}">${p != null ? eur(p) : "?"}</span>` }) })
       .bindPopup(() => popHtml(r), { maxWidth: 260, minWidth: 220, autoPanPadding: [16, 16] });
   }));
@@ -938,7 +950,7 @@ $("lpBack").onclick = () => $("lp").close();
 $("lp").addEventListener("close", () => { lpId = null; history.replaceState(null, "", location.pathname + location.search); renderAll(); reloadList(); });
 function lpRender(){
   const id = lpId; if (!id) return;
-  const r = cache[id], x = stOf(id), sg = stageOf(id), closed = isClosed(id), dl = r.distilled;
+  const r = eff(cache[id]), x = stOf(id), sg = stageOf(id), closed = isClosed(id), dl = r.distilled;
   const body = $("lp"), top = body.scrollTop;
   const open = [...$("lpBody").querySelectorAll("details[data-k][open]")].map((d) => d.dataset.k);
   $("lpTitle").textContent = r.street;
@@ -946,13 +958,14 @@ function lpRender(){
   $("lpBody").innerHTML = `
     ${(r.photos || []).length ? `<div class="photos">${r.photos.slice(0, 12).map((p) => `<img src="${esc(p)}" alt="" loading="lazy">`).join("")}</div>` : ""}
     <div class="lphead">
-      <div class="lpprice">${priceHtml(r)}${dv > 1 ? `<span class="why">${eur(r.price)} a month for ${dv}${dv < r.people ? ` (up to ${r.people} allowed)` : ""}</span>` : r.people == null ? '<span class="why">People allowed not stated</span>' : '<span class="why">a month</span>'}${r.deposit > 0 ? `<span class="why">· deposit ${eur(r.deposit)}</span>` : ""}</div>
-      <div class="lpmeta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail(r) ? `<span>${esc(avail(r))}</span>` : ""}${r.posted ? `<span>${esc(postedTxt(r.posted))}</span>` : ""}${dt ? `<span class="dist">${esc(dt)}</span>` : ""}${r.gone_at && r.source !== "manual" ? `<span>No longer on ${esc(siteName(r.source))}</span>` : ""}</div>
+      <div class="lpprice">${priceHtml(r)}${r._mf?.price ? mfTag() : ""}${dv > 1 ? `<span class="why">${eur(r.price)} a month for ${dv}${dv < r.people ? ` (up to ${r.people} allowed)` : ""}</span>` : r.people == null ? '<span class="why">People allowed not stated</span>' : '<span class="why">a month</span>'}${r.deposit > 0 ? `<span class="why">· deposit ${eur(r.deposit)}</span>` : ""}</div>
+      <div class="lpmeta"><span>${esc(r.city)}</span><span>${esc(cap(r.kind))}${r.size_m2 ? " · " + r.size_m2 + " m²" : ""}</span>${avail(r) ? `<span>${esc(avail(r))}${r._mf?.available_from || r._mf?.available_until ? " ✉" : ""}</span>` : ""}${r.posted ? `<span>${esc(postedTxt(r.posted))}</span>` : ""}${dt ? `<span class="dist">${esc(dt)}</span>` : ""}${r.gone_at && r.source !== "manual" ? `<span>No longer on ${esc(siteName(r.source))}</span>` : ""}</div>
       <div class="badges">${checkBadge(r)}${badgeList(r).map((t) => `<span class="badge ${toneOf(t)}">${esc(label(t))}</span>`).join("")}${r.reg === "unknown" ? '<span class="badge">Registration not stated</span>' : ""}</div>
       <div id="lpLive">${liveHtml(id)}</div>
       <div class="links"><a href="${esc(mapUrl(r))}" target="_blank" rel="noopener">Map ↗</a>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${r.source === "manual" ? "The ad ↗" : `On ${esc(siteName(r.source))} ↗`}</a>` : ""}</div>
       <div id="lpDups">${dupsHtml(id)}</div>
     </div>
+    ${msgFactsHtml(r)}
     ${closed ? `<div class="closedbar"><span>Closed: ${esc(x.closed ? CLOSED_LABEL[x.closed] : "Not for me")}</span><button class="btn small ghost" type="button" data-a="reopen">Reopen</button></div>` : ""}
     ${needsVerdict(id) ? `<section class="sec hi" id="lp-verdict"><h3>You viewed it ${x.viewing_at ? esc(when(x.viewing_at)) : ""}. How was it?</h3>
       <div class="opts">${OPINIONS.map(([k, t], i) => `<button class="btn${i ? " ghost" : ""}" type="button" data-verdict="${k}">${t}</button>`).join("")}</div></section>` : ""}
@@ -991,6 +1004,32 @@ function lpRender(){
   body.scrollTop = top;
   if (open.includes("full")) loadFull(id);
   loadDups(id);
+}
+// ---- what the landlord told you in messages (my_status.msg_facts): shown on top of the ad, with what the ad said ----
+const mfTag = () => `<button class="mftag" type="button" data-a="mf">✉ from their message</button>`;
+function mfVal(k, v){
+  if (v == null || v === "") return "not stated";
+  if (k === "price" || k === "deposit") return eur(v);
+  if (k === "available_from" || k === "available_until") return day(v);
+  if (k === "utilities_incl") return v ? "yes" : "no";
+  return String(v);
+}
+function msgFactsHtml(r){
+  const mf = r._mf; if (!mf) return "";
+  const rows = MF_KEYS.filter((k) => mf[k]).map((k) => {
+    const ad = r._ad[k], same = ad != null && String(ad) === String(mf[k].v);
+    return `<li><b>${MF_LABEL[k]}: ${esc(mfVal(k, mf[k].v))}</b> <span class="why">said on ${esc(day(mf[k].at.slice(0, 10)))}${same ? " · same as the ad" : ad == null || ad === "" ? " · not in the ad" : ` · the ad said ${esc(mfVal(k, ad))}`}</span> <button class="linkbtn" type="button" data-clearfact="${k}">Wrong, remove</button></li>`;
+  });
+  const notes = (mf.notes || []).map((n, i) => `<li>${esc(n.t)} <span class="why">said on ${esc(day(n.at.slice(0, 10)))}</span> <button class="linkbtn" type="button" data-clearfact="notes" data-i="${i}">Wrong, remove</button></li>`);
+  if (!rows.length && !notes.length) return "";
+  return `<section class="sec" id="lp-mf"><h3>What they told you in messages</h3>
+    <p class="why">Newer than the ad, so these are used above and in the deal.</p>
+    <ul class="mflist">${rows.join("")}${notes.join("")}</ul></section>`;
+}
+async function clearFact(id, key, index){
+  const r = await post("status", { id: Number(id), action: "clearfact", set: { key, index } });
+  if (r.row) statuses[String(id)] = r.row;
+  lpRender(); renderAll();
 }
 // ---- reposts: the same place posted again (same address, price and size, similar text, an hour or more apart) is hidden
 // behind the oldest ad; its page lists the reposts, and "Not the same place" shows one again ----
@@ -1233,6 +1272,11 @@ $("lpBody").addEventListener("click", async (e) => {
     } else if (b.dataset.isdup){
       await setNotDup(b.dataset.isdup, false);
       toast("Hidden again as a repost (if it still matches an older ad).");
+    } else if (b.dataset.a === "mf"){
+      $("lp-mf")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (b.dataset.clearfact){
+      await clearFact(id, b.dataset.clearfact, b.dataset.i != null ? Number(b.dataset.i) : undefined);
+      toast(b.dataset.clearfact === "notes" ? "Note removed." : "Removed. The ad's value shows again.");
     } else if (b.dataset.a === "reopen"){
       await setStand(id, { closed: null, ...(before.opinion === "no" ? { opinion: null } : {}) });
       toast("Reopened.", standUndo(id, before));
