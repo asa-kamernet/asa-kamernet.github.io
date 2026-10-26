@@ -149,9 +149,11 @@ async function fn(name, opts = {}){
   const res = await fetch(`${SUPA}/functions/v1/${name}`, { ...opts, headers: { "x-passcode": pass, "content-type": "application/json", ...(opts.headers || {}) } });
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) lockOut("Wrong passcode. Try again.");
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error(aiErr(body.error) || `HTTP ${res.status}`);
   return body;
 }
+// the AI account's spending cap, said plainly instead of OpenRouter's raw error
+const aiErr = (m) => m && /key limit exceeded|monthly limit/i.test(m) ? "the AI account reached its monthly spending limit (raise it on openrouter.ai, Keys)" : m;
 const post = (name, body) => fn(name, { method: "POST", body: JSON.stringify(body) });
 const countOf = (res, n) => Number((res.headers.get("content-range") || "").split("/")[1]) || n;
 
@@ -186,7 +188,7 @@ function showTab(tab){
   if (tab !== "find") setSelect(false);
   if (tab === "leads") renderLeads();
   if (tab === "inbox") renderInbox();
-  if (tab === "more"){ drawHealth(); drawSites(); loadSites(); loadFacts(); }
+  if (tab === "more"){ drawHealth(); drawSites(); loadSites(); loadFacts(); loadPeople().then(drawPeople); }
   if (tab === "find" && S.view === "map" && map) setTimeout(() => map.invalidateSize(), 0);
   window.scrollTo(0, 0);
 }
@@ -770,7 +772,7 @@ function leadCard(id, why, btn, sec, cls = ""){
   return `<article class="lead ${cls}" data-id="${id}" data-sec="${sec}" tabindex="0" role="button">
     ${thumb(r)}
     <div class="cardtop"><span class="street">${esc(r.street)}</span>${r.price ? priceHtml(r) : ""}</div>
-    <div class="badges">${statePill(id)}<span class="badge">${esc(r.city || "")}</span></div>
+    <div class="badges">${statePill(id)}<span class="badge">${esc(r.city || "")}</span>${pplIds(peopleAns[id])?.length ? `<span class="badge">${esc(pplNames(peopleAns[id]).replace(/^you and /, "with "))}</span>` : ""}</div>
     ${why ? `<div class="why">${esc(why)}</div>` : ""}
     ${btn ? `<button class="btn small nextb" type="button">${esc(btn)}</button>` : ""}
   </article>`;
@@ -792,13 +794,22 @@ function agendaItems(){
 }
 // ---- Questions for Asa (Asa, 26 Oct 2026): each one asked ONCE, answered once, every waiting message rewritten with it ----
 let questions = [];
-async function loadQuestions(){ try { questions = (await post("replydraft", { action: "questions" })).questions || []; } catch {} }
+async function loadQuestions(){ try { const r = await post("replydraft", { action: "questions" }); questions = r.questions || []; peopleAns = r.people_answers || {}; } catch {} }
 const questionsFor = (aid) => questions.filter((q) => (q.places || []).some((p) => p.application_id === aid));
 const waitsOnQ = (d) => questionsFor(d.id).length > 0;
 function questionCard(q){
   const places = q.places || [], per = q.scope === "place" && places.length > 1;
   const opts = q.kind === "yesno" ? ["Yes", "No"] : q.kind === "pick" ? (q.options || []) : [];
   const btn = (v, label) => `<button class="btn ghost small qopt" type="button" data-v="${esc(v)}">${esc(label || v)}</button>`;
+  if (q.kind === "people") return `<div class="qcard" data-qid="${q.id}">
+    <b>${esc(q.text)}</b>
+    <div class="why">${places.length ? `Needed for ${plural(places.length, "message")}: ${places.map((p) => esc(p.street || "a place")).join(", ")}` : ""}</div>
+    ${q.last_answer && pplIds(q.last_answer) ? `<div class="opts">${btn(q.last_answer, `Same as before: ${pplNames(q.last_answer)}`)}</div>` : ""}
+    <div class="pwrap">${peopleChips(null)}</div>
+    <div class="btnrow"><button class="btn small qppl" type="button">Save${per ? " for all" : ""}</button></div>
+    ${per ? `<details><summary>Different for some places</summary>${places.map((p) => `<div class="qpl"><span>${esc(p.street || "a place")}</span><div class="pwrap" data-lid="${p.listing_id}">${peopleChips(null)}</div></div>`).join("")}<button class="btn small qsavepp" type="button">Save these</button></details>` : ""}
+    <div class="btnrow"><button class="btn ghost small qno" type="button">Not needed</button><small class="qst why"></small></div>
+  </div>`;
   return `<div class="qcard" data-qid="${q.id}">
     <b>${esc(q.text)}</b>
     <div class="why">${places.length ? `Needed for ${plural(places.length, "message")}: ${places.map((p) => esc(p.street || "a place")).join(", ")}` : q.request_id ? "Claude asked this about something you told it." : ""}</div>
@@ -815,7 +826,15 @@ async function questionClick(e){
   const q = questions.find((x) => x.id === Number(card.dataset.qid)); if (!q) return true;
   let body;
   if (b.classList.contains("qopt")) body = { answer: b.dataset.v };
-  else if (b.classList.contains("qsave")){
+  else if (b.classList.contains("qppl")){
+    const v = chipsVal(card.querySelector(".pwrap:not([data-lid])")); if (v == null){ toast("Pick who comes along, or Just me.", null, true); return true; }
+    body = { answer: v };
+  } else if (b.classList.contains("qsavepp") && q.kind === "people"){
+    const per = {}; card.querySelectorAll(".pwrap[data-lid]").forEach((w) => { const v = chipsVal(w); if (v != null) per[w.dataset.lid] = v; });
+    const all = chipsVal(card.querySelector(".pwrap:not([data-lid])"));
+    if (!Object.keys(per).length && all == null){ toast("Pick people for at least one place.", null, true); return true; }
+    body = { per_place: per, ...(all != null ? { answer: all } : {}) };
+  } else if (b.classList.contains("qsave")){
     const v = card.querySelector(".qin").value.trim(); if (!v){ toast("Write an answer first.", null, true); return true; }
     body = { answer: v };
   } else if (b.classList.contains("qsavepp")){
@@ -826,18 +845,130 @@ async function questionClick(e){
   } else if (b.classList.contains("qno")){
     if (!await confirmBox({ title: "Leave this out?", ok: "Leave it out", body: "<p>Claude rewrites the waiting messages without it and won't ask again.</p>" })) return true;
     body = null;
-  } else return true;
+  } else if (b.classList.contains("pchip") || b.classList.contains("pnew")) return true;
+  else return true;
   const st = card.querySelector(".qst"), n = (q.places || []).length;
   card.querySelectorAll("button,input").forEach((x) => { x.disabled = true; });
   st.textContent = n ? `Saving and rewriting ${plural(n, "message")}… (about ${Math.max(10, Math.ceil(n / 3) * 10)} seconds)` : "Saving…";
   try {
     const r = await post("replydraft", body ? { action: "answer_question", id: q.id, ...body } : { action: "dismiss_question", id: q.id });
-    if (q.request_id && body) await post("me", { action: "request", text: `Answer to your question “${q.text}”: ${body.answer || Object.values(body.per_place).join("; ")}` });
+    if (q.request_id && body) await post("me", { action: "request", text: `Answer to your question “${q.text}”: ${pplNames(body.answer) || Object.values(body.per_place).map(pplNames).join("; ")}` });
     await Promise.all([loadQuestions(), loadDrafts()]); renderAll(); if (lpId) lpRender();
     toast(body ? `Saved.${r.rewritten ? ` ${plural(r.rewritten, "message")} rewritten with it.` : ""}${r.still_open_for ? ` Still open for ${plural(r.still_open_for, "place")}.` : ""}${r.failed?.length ? ` Couldn't rewrite: ${r.failed.join(", ")}.` : ""}` : "Left out. Claude won't ask again.", null, !!r.failed?.length);
   } catch (err){ st.textContent = "Couldn't save: " + err.message; card.querySelectorAll("button,input").forEach((x) => { x.disabled = false; }); }
   return true;
 }
+// ---- People who may move in with you (Asa, 26 Oct 2026): mini profiles, picked per place for "Who comes along?" ----
+// An answer "people:3,5" means those two come along, "people:" means just you. Messages use name + intro, the rest only if asked.
+let people = [], peopleAns = {};
+async function loadPeople(){ try { people = (await fn("me?people=1")).people || []; } catch {} }
+const pplIds = (a) => { const m = /^people:\s*([\d,\s]*)$/.exec(String(a ?? "").trim()); return m ? m[1].split(",").map(Number).filter((x) => x > 0) : null; };
+function pplNames(a){
+  const ids = pplIds(a); if (!ids) return String(a ?? "");
+  const ns = ids.map((i) => people.find((p) => p.id === i)?.name).filter(Boolean);
+  return ns.length ? "you and " + ns.join(" and ") : "just you";
+}
+function peopleChips(a){
+  const sel = pplIds(a);
+  return `<div class="pchips">${people.map((p) => `<button type="button" class="chip pchip" data-pid="${p.id}" aria-pressed="${!!sel?.includes(p.id)}">${esc(p.name)}</button>`).join("")}
+    <button type="button" class="chip pchip" data-pid="0" aria-pressed="${!!sel && !sel.length}">Just me</button>
+    <button type="button" class="chip pnew">+ New person</button></div>`;
+}
+// what the chips in one box say: "people:3,5", "people:" (just me) or null (nothing picked)
+function chipsVal(box){
+  if (!box) return null;
+  const on = [...box.querySelectorAll('.pchip[aria-pressed="true"]')].map((b) => Number(b.dataset.pid));
+  if (!on.length) return null;
+  return "people:" + on.filter((x) => x > 0).join(",");
+}
+const yn = (v) => v === true ? "yes" : v === false ? "no" : "";
+const ynSel = (id, v) => `<select id="${id}"><option value="">Not said</option><option value="yes" ${v === true ? "selected" : ""}>Yes</option><option value="no" ${v === false ? "selected" : ""}>No</option></select>`;
+function personForm(p = {}){
+  return `<div class="pform">
+    <label class="field">Name<input id="pfName" value="${esc(p.name || "")}" autocomplete="off"></label>
+    <label class="field">How you know them<input id="pfRel" value="${esc(p.relation || "")}" placeholder="friend, partner, brother…"></label>
+    <div class="row2"><label class="field">Age<input id="pfAge" type="number" min="1" max="119" inputmode="numeric" value="${p.age ?? ""}"></label>
+      <label class="field">Has an income${ynSel("pfInc", p.has_income)}</label></div>
+    <label class="field">Work or study<input id="pfWork" value="${esc(p.work || "")}"></label>
+    <div class="row2"><label class="field">Smokes${ynSel("pfSmk", p.smoker)}</label>
+      <label class="field">Registers at the address${ynSel("pfReg", p.registers)}</label></div>
+    <label class="field">Pets<input id="pfPets" value="${esc(p.pets || "")}" placeholder="none, a cat…"></label>
+    <label class="field">Intro for the landlord (1-2 lines)<textarea id="pfIntro" rows="2">${esc(p.intro || "")}</textarea></label>
+    <p class="why">Messages use the name and intro. The rest only goes in when a landlord or the ad asks.</p></div>`;
+}
+// opens the form; saves and returns the person, or null when cancelled
+async function editPerson(p = {}){
+  if (!await confirmBox({ title: p.id ? "Edit " + p.name : "New person", ok: "Save", body: personForm(p) })) return null;
+  const v = (id) => $(id).value.trim(), b = (id) => v(id) === "yes" ? true : v(id) === "no" ? false : null;
+  if (!v("pfName")){ toast("Give them a name first.", null, true); return null; }
+  try {
+    const r = await post("me", { action: "person_save", id: p.id, name: v("pfName"), relation: v("pfRel"), age: v("pfAge") ? Number(v("pfAge")) : null, work: v("pfWork"),
+      has_income: b("pfInc"), smoker: b("pfSmk"), pets: v("pfPets"), registers: b("pfReg"), intro: v("pfIntro") });
+    await loadPeople(); if (!$("v-more").hidden) drawPeople();
+    toast(p.id ? "Saved." : `${r.person.name} added.`);
+    return r.person;
+  } catch (err){ fail(err); return null; }
+}
+function drawPeople(){
+  $("pplList").innerHTML = people.map((p) => {
+    const bits = [p.relation, p.age ? p.age + "" : "", p.work, p.has_income != null ? "income: " + yn(p.has_income) : "", p.smoker != null ? "smokes: " + yn(p.smoker) : "",
+      p.pets ? "pets: " + p.pets : "", p.registers != null ? "registers: " + yn(p.registers) : ""].filter(Boolean);
+    return `<div class="person" data-pid="${p.id}"><b>${esc(p.name)}</b>${bits.length ? `<div class="why">${esc(bits.join(" · "))}</div>` : ""}${p.intro ? `<p>${esc(p.intro)}</p>` : ""}
+      <div class="btnrow"><button class="btn ghost small pedit" type="button">Edit</button><button class="btn ghost small danger pdel" type="button">Delete</button></div></div>`;
+  }).join("") || '<p class="why">Nobody yet. Add the people who might move in with you; then you pick them per place.</p>';
+}
+$("pplAdd").onclick = () => editPerson();
+$("pplList").addEventListener("click", async (e) => {
+  const row = e.target.closest(".person"); if (!row) return;
+  const p = people.find((x) => x.id === Number(row.dataset.pid)); if (!p) return;
+  if (e.target.closest(".pedit")) return editPerson(p);
+  if (!e.target.closest(".pdel")) return;
+  if (!await confirmBox({ title: `Delete ${p.name}?`, ok: "Delete", danger: true, body: "<p>Messages you write from now on leave them out. Messages already sent don't change.</p>" })) return;
+  try {
+    await post("me", { action: "person_delete", id: p.id }); await loadPeople(); drawPeople();
+    toast(`${p.name} deleted.`, { label: "Undo", fn: async () => { await post("me", { action: "person_delete", id: p.id, undo: true }); await loadPeople(); drawPeople(); toast("Back."); } });
+  } catch (err){ fail(err); }
+});
+// chips anywhere: tap toggles; "Just me" clears the others; "+ New person" adds one and picks them
+document.addEventListener("click", async (e) => {
+  const c = e.target.closest(".pchip, .pnew"); if (!c) return;
+  const box = c.closest(".pchips");
+  if (c.classList.contains("pnew")){
+    const p = await editPerson(); if (!p) return;
+    box.querySelector('.pchip[data-pid="0"]').setAttribute("aria-pressed", "false");
+    box.querySelector('.pchip[data-pid="0"]').insertAdjacentHTML("beforebegin", `<button type="button" class="chip pchip" data-pid="${p.id}" aria-pressed="true">${esc(p.name)}</button>`);
+    return;
+  }
+  const on = c.getAttribute("aria-pressed") !== "true";
+  c.setAttribute("aria-pressed", String(on));
+  if (on && c.dataset.pid === "0") box.querySelectorAll('.pchip:not([data-pid="0"])').forEach((x) => x.setAttribute("aria-pressed", "false"));
+  if (on && c.dataset.pid !== "0") box.querySelector('.pchip[data-pid="0"]').setAttribute("aria-pressed", "false");
+});
+// listing page: "Who comes along" line with Change
+function whoLine(id){
+  const a = peopleAns[id];
+  if (!people.length && !a) return "";
+  return `<div class="wholine" id="lpWho"><span class="lbl">Who comes along</span><span>${a ? esc(cap(pplNames(a))) : '<span class="why">Not chosen yet</span>'}</span>
+    <button class="btn ghost small" type="button" data-pp="change">Change</button></div>`;
+}
+$("lpBody").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-pp]"); if (!b || !lpId) return;
+  const id = lpId, w = $("lpWho");
+  if (b.dataset.pp === "change"){
+    w.innerHTML = `<span class="lbl">Who comes along</span>${peopleChips(peopleAns[id])}<div class="btnrow"><button class="btn small" type="button" data-pp="save">Save</button><button class="btn ghost small" type="button" data-pp="cancel">Cancel</button></div>
+      <p class="why">${draftOf(id) ? "Claude rewrites your unsent message for this place to match." : "Used in the messages Claude writes for this place."}</p>`;
+    return;
+  }
+  if (b.dataset.pp === "cancel"){ w.outerHTML = whoLine(id); return; }
+  const v = chipsVal(w); if (v == null){ toast("Pick who comes along, or Just me.", null, true); return; }
+  w.querySelectorAll("button").forEach((x) => { x.disabled = true; });
+  b.textContent = draftOf(id) ? "Saving and rewriting…" : "Saving…";
+  try {
+    const r = await post("replydraft", { action: "set_people", listing_id: Number(id), people: pplIds(v) });
+    await Promise.all([loadQuestions(), loadDrafts()]); lpRender(); renderAll();
+    toast(`Saved.${r.rewritten ? " Your message was rewritten." : ""}${r.error ? " Couldn't rewrite the message: " + aiErr(r.error) : ""}`, null, !!r.error);
+  } catch (err){ fail(err); lpRender(); }
+});
 document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.classList?.contains("qin")){ e.preventDefault(); e.target.closest(".qcard").querySelector(".qsave").click(); } });
 
 // =====================================================================================
@@ -1057,6 +1188,7 @@ function lpRender(){
       <div class="stepper" role="group" aria-label="Progress">${STAGES.slice(1).map((k, i) => `<button type="button" class="step${i + 1 < STAGES.indexOf(sg) ? " done" : ""}${k === sg ? " now" : ""}" data-stage="${k}">${STAGE_LABEL[k]}</button>`).join("")}</div>
       <p class="why">${sg === "none" ? "Not contacted yet. This moves by itself when you send a message or they answer; tap a step to set it yourself." : "Moves by itself with your messages. Tap a step to correct it."}</p>
       <div><span class="lbl">My opinion</span><div class="opts">${OPINIONS.map(([k, t]) => `<button type="button" class="chip" data-op="${k}" aria-pressed="${x.opinion === k}">${t}</button>`).join("")}</div></div>
+      ${whoLine(id)}
       <label class="field">Viewing (date and time)<div class="btnrow"><input type="datetime-local" id="lpView" value="${toLocalInput(x.viewing_at)}" style="flex:1">${x.viewing_at ? '<button class="btn ghost small" type="button" data-a="noview">Clear</button>' : ""}</div></label>
       ${closed ? "" : `<details data-k="close"${open.includes("close") ? " open" : ""}><summary>Close this lead…</summary><div class="opts" style="margin-top:6px">${Object.entries(CLOSED_LABEL).map(([k, t]) => `<button class="btn ghost small danger" type="button" data-close="${k}">${t}</button>`).join("")}</div></details>`}
     </section>
@@ -1910,7 +2042,7 @@ function renderAll(){
 // quiet = the timer did it: don't redraw an open listing while you're typing in it
 async function refreshAll(quiet = false){
   // one part failing (a slow function, a bad answer) must not stop the rest
-  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadDeals(), loadInbox(), loadSites(), headline(), refreshRows(leadIds())]);
+  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadPeople(), loadDeals(), loadInbox(), loadSites(), headline(), refreshRows(leadIds())]);
   const typing = document.activeElement?.closest?.("#lp") && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
   try { if (lpId){ await loadThread(lpId); if (!(quiet && typing)) lpRender(); } } catch {}
   try { renderAll(); } catch {}
