@@ -1,11 +1,12 @@
 "use strict";
 // Kamernet Live. The whole search happens here, on four tabs:
 //   Find      every listing (filters, location + distance, list or map); "Select" to act on several at once
-//   My leads  places you're in touch with, grouped by what happens next, each with one next-step button
-//   Inbox     messages waiting to be sent, new landlord messages, messages that need a listing
+//   To do     everything waiting on you: questions (each asked once), viewing verdicts, messages to send, payments,
+//             messages that need a place (internal tab key "inbox")
+//   Places    where each place stands: coming up, deals, talking, saved, closed (internal tab key "leads")
 //   More      alerts and health, facts about you, add a place, lock
 // Tapping any listing opens its page: status, your message, the conversation, the landlord, the deal, the AI summary.
-// NOTHING here sends to a landlord except "Send for me" (one message) and "Send all" in Inbox (every ready email and Kamernet
+// NOTHING here sends to a landlord except "Send for me" (one message) and "Send all" in To do (every ready email and Kamernet
 // draft; Asa, 25 Oct 2026), each after an "Are you sure?": email goes out through
 // the Gmail script, Kamernet through the "Kamernet Live sender" helper in Chrome on Asa's PC (kamernet-sender-extension).
 
@@ -97,7 +98,7 @@ function persist(){ store.set("kn_state", JSON.stringify(S)); }
 // ---- What we know ----
 let pass = store.get("kn_pass") || "";
 let statuses = {}, threads = {}, deals = {}, contacts = {}, drafts = [], inbox = null, facts = [], cityList = [], tagCounts = [];
-const cache = {};                // listing id -> row (from any list, kept for My leads, Inbox and the listing page)
+const cache = {};                // listing id -> row (from any list, kept for Places, To do and the listing page)
 let loaded = [], total = 0, offset = 0, topN = 0;
 const stOf = (id) => statuses[id] || {};
 // what the landlord said in messages (my_status.msg_facts) goes on top of the ad's values; r._ad keeps the ad itself
@@ -191,10 +192,8 @@ function showTab(tab){
 }
 document.querySelector(".tabs").onclick = (e) => { const b = e.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); };
 function renderBadges(){
-  const ids = leadIds(), move = ids.filter(yourMove).length;
-  const inb = unsent().filter((d) => !isClosed(String(d.listing_id))).length + (inbox?.open.length || 0);
   const tb = (id, n) => { $(id).hidden = !n; $(id).textContent = n > 99 ? "99+" : n; };
-  tb("tb-leads", move); tb("tb-inbox", inb);
+  tb("tb-inbox", todoCount());
   $("tb-more").hidden = !healthBroken();
 }
 
@@ -234,7 +233,7 @@ function filters(){
   const inc = Object.keys(S.tags).filter((t) => S.tags[t] === "in"), out = Object.keys(S.tags).filter((t) => S.tags[t] === "out");
   if (inc.length) p.push(`all_tags=cs.{${inc.join(",")}}`);
   for (const t of out) p.push(`all_tags=not.cs.{${t}}`);
-  const hide = known.filter((id) => isClosed(id) || (S.hideContacted && stageOf(id) !== "none")); // closed ones live in My leads
+  const hide = known.filter((id) => isClosed(id) || (S.hideContacted && stageOf(id) !== "none")); // closed ones live in Places
   if (hide.length) p.push(`id=not.in.(${hide.join(",")})`);
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
@@ -699,7 +698,7 @@ $("selpick").onclick = () => {
 $("selwrite").onclick = async () => {
   const todo = [...picked].filter((id) => !isClosed(String(id)) && stageOf(String(id)) === "none").slice(0, MAX_WRITE);
   const ok = await confirmBox({ title: `Write ${plural(todo.length, "message")}?`, ok: "Write them",
-    body: `<p>Claude writes a first message for each, in your style (about ${euro(todo.length * 0.0012)} in total). <b>Nothing is sent.</b> They land in your Inbox, where you check each one and send it yourself.</p>${todo.some((id) => draftOf(id)) ? "<p class='why'>Places that already have a message keep it.</p>" : ""}` });
+    body: `<p>Claude writes a first message for each, in your style (about ${euro(todo.length * 0.0012)} in total). <b>Nothing is sent.</b> They land in To do, where you check each one and send it yourself.</p>${todo.some((id) => draftOf(id)) ? "<p class='why'>Places that already have a message keep it.</p>" : ""}` });
   if (!ok) return;
   await writeFor(todo);
 };
@@ -713,8 +712,8 @@ async function writeFor(ids){
       cost += r.total_cost_usd || 0;
     } catch (e) { bad += Math.min(10, ids.length - i); lastErr = e.message; }
   }
-  await loadDrafts(); setSelect(false); renderAll();
-  toast(`${plural(done, "message")} ready in your Inbox${bad ? `, ${bad} failed (${lastErr})` : ""} · cost ${euro(cost)}`, done ? { label: "Open Inbox", fn: () => showTab("inbox") } : null, !!bad && !done);
+  await Promise.all([loadDrafts(), loadQuestions()]); setSelect(false); renderAll();
+  toast(`${plural(done, "message")} ready in To do${bad ? `, ${bad} failed (${lastErr})` : ""} · cost ${euro(cost)}`, done ? { label: "Open To do", fn: () => showTab("inbox") } : null, !!bad && !done);
 }
 $("selai").onclick = async () => {
   let ids = picked.size ? [...picked].filter((id) => !cache[id]?.distilled_at).slice(0, MAX_AI) : null;
@@ -739,7 +738,7 @@ async function summarize(ids){
 }
 
 // =====================================================================================
-// MY LEADS
+// PLACES and TO DO: shared helpers
 // =====================================================================================
 function leadIds(){
   return [...new Set([...Object.keys(statuses), ...Object.keys(threads), ...Object.keys(deals), ...unsent().map((d) => String(d.listing_id))])];
@@ -791,37 +790,91 @@ function agendaItems(){
   }
   return items.filter((i) => i.day ? i.t > now - 86400000 : true).sort((a, b) => a.t - b.t).slice(0, 15);
 }
+// ---- Questions for Asa (Asa, 26 Oct 2026): each one asked ONCE, answered once, every waiting message rewritten with it ----
+let questions = [];
+async function loadQuestions(){ try { questions = (await post("replydraft", { action: "questions" })).questions || []; } catch {} }
+const questionsFor = (aid) => questions.filter((q) => (q.places || []).some((p) => p.application_id === aid));
+const waitsOnQ = (d) => questionsFor(d.id).length > 0;
+function questionCard(q){
+  const places = q.places || [], per = q.scope === "place" && places.length > 1;
+  const opts = q.kind === "yesno" ? ["Yes", "No"] : q.kind === "pick" ? (q.options || []) : [];
+  const btn = (v, label) => `<button class="btn ghost small qopt" type="button" data-v="${esc(v)}">${esc(label || v)}</button>`;
+  return `<div class="qcard" data-qid="${q.id}">
+    <b>${esc(q.text)}</b>
+    <div class="why">${places.length ? `Needed for ${plural(places.length, "message")}: ${places.map((p) => esc(p.street || "a place")).join(", ")}` : q.request_id ? "Claude asked this about something you told it." : ""}</div>
+    ${opts.length || q.last_answer ? `<div class="opts">${opts.map((o) => btn(o)).join("")}${q.last_answer ? btn(q.last_answer, `Same as before: ${q.last_answer}`) : ""}</div>` : ""}
+    ${q.kind === "yesno" ? "" : `<div class="row"><input class="qin"${q.kind === "date" ? ' type="date"' : ""} placeholder="${per ? "Same answer for all" : "Your answer"}" aria-label="Your answer"><button class="btn small qsave" type="button">Save</button></div>`}
+    ${per ? `<details><summary>Different for some places</summary>${places.map((p) => `<label class="qpl"><span>${esc(p.street || "a place")}</span><input class="qpp" data-lid="${p.listing_id}" placeholder="Answer for this place"></label>`).join("")}<button class="btn small qsavepp" type="button">Save these</button></details>` : ""}
+    <div class="btnrow"><button class="btn ghost small qno" type="button">Not needed</button><small class="qst why"></small></div>
+  </div>`;
+}
+// one handler for question cards, in To do and on the listing page; true when the click was on a card
+async function questionClick(e){
+  const card = e.target.closest(".qcard"); if (!card) return false;
+  const b = e.target.closest("button"); if (!b) return true;
+  const q = questions.find((x) => x.id === Number(card.dataset.qid)); if (!q) return true;
+  let body;
+  if (b.classList.contains("qopt")) body = { answer: b.dataset.v };
+  else if (b.classList.contains("qsave")){
+    const v = card.querySelector(".qin").value.trim(); if (!v){ toast("Write an answer first.", null, true); return true; }
+    body = { answer: v };
+  } else if (b.classList.contains("qsavepp")){
+    const per = {}; card.querySelectorAll(".qpp").forEach((i) => { if (i.value.trim()) per[i.dataset.lid] = i.value.trim(); });
+    const all = card.querySelector(".qin")?.value.trim();
+    if (!Object.keys(per).length && !all){ toast("Write an answer for at least one place.", null, true); return true; }
+    body = { per_place: per, ...(all ? { answer: all } : {}) };
+  } else if (b.classList.contains("qno")){
+    if (!await confirmBox({ title: "Leave this out?", ok: "Leave it out", body: "<p>Claude rewrites the waiting messages without it and won't ask again.</p>" })) return true;
+    body = null;
+  } else return true;
+  const st = card.querySelector(".qst"), n = (q.places || []).length;
+  card.querySelectorAll("button,input").forEach((x) => { x.disabled = true; });
+  st.textContent = n ? `Saving and rewriting ${plural(n, "message")}… (about ${Math.max(10, Math.ceil(n / 3) * 10)} seconds)` : "Saving…";
+  try {
+    const r = await post("replydraft", body ? { action: "answer_question", id: q.id, ...body } : { action: "dismiss_question", id: q.id });
+    if (q.request_id && body) await post("me", { action: "request", text: `Answer to your question “${q.text}”: ${body.answer || Object.values(body.per_place).join("; ")}` });
+    await Promise.all([loadQuestions(), loadDrafts()]); renderAll(); if (lpId) lpRender();
+    toast(body ? `Saved.${r.rewritten ? ` ${plural(r.rewritten, "message")} rewritten with it.` : ""}${r.still_open_for ? ` Still open for ${plural(r.still_open_for, "place")}.` : ""}${r.failed?.length ? ` Couldn't rewrite: ${r.failed.join(", ")}.` : ""}` : "Left out. Claude won't ask again.", null, !!r.failed?.length);
+  } catch (err){ st.textContent = "Couldn't save: " + err.message; card.querySelectorAll("button,input").forEach((x) => { x.disabled = false; }); }
+  return true;
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.classList?.contains("qin")){ e.preventDefault(); e.target.closest(".qcard").querySelector(".qsave").click(); } });
+
+// =====================================================================================
+// PLACES (tab "leads"): where each place stands. Actions live in To do; a card only says "1 to do".
+// =====================================================================================
+const todoFor = (id) => needsVerdict(id) || payToApprove(id) || needsReply(id) && !draftOf(id) || (draftReady(id) && !waitsOnQ(draftOf(id))) || (draftOf(id) && waitsOnQ(draftOf(id)));
 let leadsToken = 0;
 async function renderLeads(){
   const my = ++leadsToken, ids = leadIds();
   await ensureRows(ids);
   if (my !== leadsToken) return;
-  const open = ids.filter((id) => !isClosed(id));
-  const move = open.filter(yourMove).sort((a, b) => lastAt(b) - lastAt(a));
-  const rest_ = open.filter((id) => !move.includes(id));
-  const dealsL = rest_.filter((id) => ["offer", "signed"].includes(stageOf(id)));
-  const waiting = rest_.filter((id) => ["applied", "replied", "booked", "viewed"].includes(stageOf(id))).sort((a, b) => lastAt(b) - lastAt(a));
-  const saved = rest_.filter((id) => stageOf(id) === "none" && !dealsL.includes(id));
+  const open = ids.filter((id) => !isClosed(id)).sort((a, b) => lastAt(b) - lastAt(a));
+  const dealsL = open.filter((id) => ["offer", "signed"].includes(stageOf(id)));
+  const talking = open.filter((id) => !dealsL.includes(id) && (stageOf(id) !== "none" || threads[id]));
+  const saved = open.filter((id) => !dealsL.includes(id) && !talking.includes(id));
   const closed = ids.filter(isClosed).sort((a, b) => lastAt(b) - lastAt(a));
   const ag = agendaItems(), views = ag.filter((i) => i.what === "Viewing");
   const group = (title, note, html) => html ? `<section class="group"><h2>${title}${note ? ` <small>${note}</small>` : ""}</h2>${html}</section>` : "";
-  const waitWhy = (id) => {
-    const t = threads[id], sg = stageOf(id);
-    if (sg === "booked" && stOf(id).viewing_at) return `Viewing ${when(stOf(id).viewing_at)}`;
-    return t ? `You wrote ${ago(t.last_at)}. Waiting for their answer.` : `${STAGE_LABEL[sg]}${stOf(id).updated_at ? " · " + ago(stOf(id).updated_at) : ""}`;
+  const line = (id) => {
+    const t = threads[id], sg = stageOf(id), v = stOf(id).viewing_at;
+    const viewing = sg === "booked" && v ? `Viewing ${when(v)}. ` : "";
+    if (!t) return viewing + `${STAGE_LABEL[sg]}${stOf(id).updated_at ? " · " + ago(stOf(id).updated_at) : ""}`;
+    const body = `“${t.last_body.slice(0, 110)}${t.last_body.length > 110 ? "…" : ""}”`;
+    return viewing + (t.last_dir === "in" ? `They wrote ${ago(t.last_at)}: ${body}` : `You wrote ${ago(t.last_at)}, waiting for their answer.`);
   };
-  $("leadsub").textContent = `${plural(open.length, "open lead")}${move.length ? ` · ${move.length} need you` : ""}`;
+  const card = (id, why, sec) => leadCard(id, why, "", sec, todoFor(id) ? "hastodo" : "");
+  $("leadsub").textContent = `${plural(open.length, "open place")}${dealsL.length ? ` · ${dealsL.length} in a deal` : ""}`;
   $("leads").innerHTML =
-    group("Your move", move.length ? "" : null, move.map((id) => { const [w, b, s] = moveReason(id); return leadCard(id, w, b, s, "move"); }).join(""))
-    + group("Coming up", "", ag.map((i) => {
-        const r = cache[i.id] || {}, clash = i.what === "Viewing" && views.some((v) => v !== i && Math.abs(v.t - i.t) < 90 * 60000);
-        return `<div class="agrow${clash ? " clash" : ""}" data-id="${i.id}" data-sec="${i.sec}" role="button" tabindex="0"><b>${esc(i.day ? dayTxt(i.t) : when(i.t))}</b><span>${esc(i.what)}: ${esc(r.street || "a listing")}${r.city ? ", " + esc(r.city) : ""}${clash ? " · <b>clashes with another viewing</b>" : ""}</span></div>`;
-      }).join(""))
-    + group("Offers and deals", "", dealsL.map((id) => leadCard(id, stageOf(id) === "signed" ? "Signed. Next: move in and register." : "They offered it. Check the contract and payments before you sign.", "Open the deal", "deal")).join(""))
-    + group("Waiting on them", `${waiting.length}`, waiting.map((id) => leadCard(id, waitWhy(id), "", "conv")).join(""))
-    + group("Saved", "you liked these but haven't written yet", saved.map((id) => leadCard(id, "", draftOf(id) ? "" : "Write a message", "draft")).join(""))
+    group("Coming up", "", ag.map((i) => {
+      const r = cache[i.id] || {}, clash = i.what === "Viewing" && views.some((v) => v !== i && Math.abs(v.t - i.t) < 90 * 60000);
+      return `<div class="agrow${clash ? " clash" : ""}" data-id="${i.id}" data-sec="${i.sec}" role="button" tabindex="0"><b>${esc(i.day ? dayTxt(i.t) : when(i.t))}</b><span>${esc(i.what)}: ${esc(r.street || "a listing")}${r.city ? ", " + esc(r.city) : ""}${clash ? " · <b>clashes with another viewing</b>" : ""}</span></div>`;
+    }).join(""))
+    + group("Offers and deals", "", dealsL.map((id) => card(id, stageOf(id) === "signed" ? "Signed. Next: move in and register." : "They offered it. Check the contract and payments before you sign.", "deal")).join(""))
+    + group("Talking", `${talking.length}`, talking.map((id) => card(id, line(id), "conv")).join(""))
+    + group("Saved", "you liked these but haven't written yet", saved.map((id) => card(id, draftOf(id) ? "Your first message is written (see To do)." : "", "draft")).join(""))
     + (closed.length ? `<details class="group"><summary>Closed (${closed.length})</summary>${closed.map((id) => leadCard(id, CLOSED_LABEL[stOf(id).closed] || "Not for me", "", "status")).join("")}</details>` : "")
-    || `<div class="empty"><b>No leads yet.</b><span>Find a place, open it and write them a message. It shows up here.</span><button class="btn" type="button" data-goto="find">Find a place</button></div>`;
+    || `<div class="empty"><b>No places yet.</b><span>Find a place, open it and write them a message. It shows up here.</span><button class="btn" type="button" data-goto="find">Find a place</button></div>`;
   renderBadges();
 }
 function leadTap(e){
@@ -833,33 +886,53 @@ function leadTap(e){
 $("leads").addEventListener("click", leadTap); $("leads").addEventListener("keydown", leadTap);
 
 // =====================================================================================
-// INBOX
+// TO DO (tab "inbox"): everything waiting on Asa, in the order to do it
 // =====================================================================================
-async function renderInbox(){
+function todoParts(){
+  const open = leadIds().filter((id) => !isClosed(id));
   const ds = unsent().filter((d) => !isClosed(String(d.listing_id)));
-  await ensureRows(ds.map((d) => String(d.listing_id)));
-  const latest = Object.entries(threads).filter(([id, t]) => t.last_dir === "in" && !isClosed(id)).sort((a, b) => Date.parse(b[1].last_at) - Date.parse(a[1].last_at)).slice(0, 15);
-  await ensureRows(latest.map(([id]) => id));
-  const sending = ds.filter(isSending);
-  $("inboxsub").textContent = `${plural(ds.length - sending.length, "message")} to send${inbox?.open.length ? ` · ${inbox.open.length} to sort` : ""}`;
+  return {
+    verdicts: open.filter(needsVerdict),
+    ready: ds.filter((d) => !waitsOnQ(d)),
+    waiting: ds.filter(waitsOnQ),
+    noReply: open.filter((id) => needsReply(id) && !draftOf(id)),
+    pay: open.filter(payToApprove),
+    offers: open.filter((id) => stageOf(id) === "offer" && !payToApprove(id)),
+    sort: inbox?.open || [],
+  };
+}
+const todoCount = (p = todoParts()) => questions.length + p.verdicts.length + p.ready.filter((d) => !isSending(d)).length + p.noReply.length + p.pay.length + p.offers.length + p.sort.length;
+async function renderInbox(){
+  const p = todoParts();
+  await ensureRows([...p.ready, ...p.waiting].map((d) => String(d.listing_id)).concat(p.verdicts, p.noReply, p.pay, p.offers));
+  const n = todoCount(p);
+  $("inboxsub").textContent = n ? `${plural(n, "thing")} waiting on you` : "You're up to date.";
   const dcard = (d) => {
-    const r = cache[d.listing_id] || {}, ch = chanOf(d), st = isSending(d) ? (d.send_status.startsWith("kn_") ? `Sending (${CHAN[ch] || ch})…` : "Sending by email…") : d.send_status === "failed" ? "Couldn't send: open it" : `${d.kind === "reply" ? "Reply" : "First message"} · ${CHAN[ch] || ch}`;
-    return `<article class="lead${d.send_status === "failed" ? " move" : ""}" data-id="${d.listing_id}" data-sec="draft" tabindex="0" role="button">${thumb(r)}
+    const r = cache[d.listing_id] || {}, ch = chanOf(d), wq = questionsFor(d.id);
+    const st = isSending(d) ? (d.send_status.startsWith("kn_") ? `Sending (${CHAN[ch] || ch})…` : "Sending by email…") : d.send_status === "failed" ? "Couldn't send: open it" : wq.length ? `Waiting on ${plural(wq.length, "question")} above` : `${d.kind === "reply" ? "Reply" : "First message"} · ${CHAN[ch] || ch}`;
+    return `<article class="lead${d.send_status === "failed" ? " move" : ""}${wq.length ? " waitq" : ""}" data-id="${d.listing_id}" data-sec="draft" tabindex="0" role="button">${thumb(r)}
       <div class="cardtop"><span class="street">${esc(r.street || "A listing")}</span></div>
       <div class="badges"><span class="badge stage">${esc(st)}</span><span class="badge">${esc(r.city || "")}</span></div>
       <div class="why">${esc(d.draft.slice(0, 140))}${d.draft.length > 140 ? "…" : ""}</div></article>`;
   };
+  const vcard = (id) => { const r = cache[id] || {}; return `<div class="qcard vcard" data-vid="${id}"><b>How was the viewing at ${esc(r.street || "this place")}?</b><div class="why">${stOf(id).viewing_at ? "You viewed it " + esc(dayTxt(stOf(id).viewing_at)) + "." : ""} <a href="#l=${id}">Open the place</a></div><div class="opts">${OPINIONS.map(([k, l]) => `<button class="btn ghost small" type="button" data-verdict="${k}">${esc(l)}</button>`).join("")}</div></div>`; };
   const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : i.source === "email" ? `Email from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
+  const group = (title, note, html) => html ? `<section class="group"><h2>${title}${note ? ` <small>${note}</small>` : ""}</h2>${html}</section>` : "";
+  const plan = sendAllPlan(p.ready);
   $("inboxv").innerHTML = [
-    inbox?.open.length ? `<section class="group"><h2>Which place is this about?</h2><p class="why">These messages came in but couldn't be matched to a place. Find it, tap it, and Claude files it and writes a reply.</p>${inbox.open.map((i) => `<div class="ib" data-iid="${i.id}">
+    group("Questions for you", "answer once", questions.map(questionCard).join("") + p.verdicts.map(vcard).join("")),
+    group("Ready to send", p.ready.length ? "check each one, then send it" : "",
+      (plan.go.length ? `<div class="btnrow"><button class="btn small sendall" type="button">Send all (${plan.go.length})</button></div>` : "")
+      + p.ready.map(dcard).join("") + p.waiting.map(dcard).join("")),
+    group("They wrote, no reply yet", "", p.noReply.map((id) => leadCard(id, `They wrote ${ago(threads[id].last_at)}: “${threads[id].last_body.slice(0, 110)}${threads[id].last_body.length > 110 ? "…" : ""}”`, "Write a reply", "draft")).join("")),
+    group("Check", "", p.pay.map((id) => leadCard(id, "A payment is waiting for your OK.", "Check the payment", "deal", "move")).join("") + p.offers.map((id) => leadCard(id, "They offered it. Check the contract and payments before you sign.", "Open the deal", "deal")).join("")),
+    p.sort.length ? `<section class="group"><h2>Which place is this about?</h2><p class="why">These messages came in but couldn't be matched to a place. Find it, tap it, and Claude files it and writes a reply.</p>${p.sort.map((i) => `<div class="ib" data-iid="${i.id}">
       <div><b>${src(i)}</b> · ${esc(when(i.created_at))}${i.summary ? " · " + esc(i.summary) : ""}</div>
       ${i.state === "error" ? `<div>Couldn't read it automatically. Picking the place tries again.</div>` : ""}
       <div class="body">${esc(i.body || "")}</div>
       <div class="row"><input class="ifind" placeholder="Street name"><button class="btn small ifindb" type="button">Find</button></div>
       <div class="btnrow icands"></div><div class="btnrow"><button class="btn ghost small danger iign" type="button">Not about housing</button><small class="ist why"></small></div></div>`).join("")}</section>` : "",
-    `<section class="group"><h2>Ready to send <small>${ds.length ? "check each one, then send it" : ""}</small></h2>${sendAllPlan(ds).go.length ? `<div class="btnrow"><button class="btn small sendall" type="button">Send all (${sendAllPlan(ds).go.length})</button></div>` : ""}${ds.length ? ds.map(dcard).join("") : '<p class="why">Nothing waiting. Messages Claude writes for you land here.</p>'}</section>`,
-    latest.length ? `<section class="group"><h2>Latest from landlords</h2>${latest.map(([id, t]) => leadCard(id, `${ago(t.last_at)} via ${CHAN[t.last_channel] || t.last_channel}: “${t.last_body.slice(0, 120)}${t.last_body.length > 120 ? "…" : ""}”`, "", "conv")).join("")}</section>` : "",
-  ].join("");
+  ].join("") || `<div class="empty"><b>Nothing to do.</b><span>You're up to date. New questions, replies to send and things to check land here.</span></div>`;
   renderBadges();
 }
 // Send all (Asa, 25 Oct 2026): one tap sends EVERY ready draft. Email through the Gmail script; Kamernet, WhatsApp (WhatsApp
@@ -869,6 +942,7 @@ function sendAllPlan(ds){
   const go = [], skip = [];
   for (const d of ds){
     if (isSending(d)) continue;
+    if (waitsOnQ(d)){ skip.push([d, "waiting on a question in To do"]); continue; }
     const ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, c = contacts[d.listing_id] || {};
     if (ch === "email" && c.email || ch === "kamernet" || ch === "whatsapp" && c.phone || ch === "site" && cache[d.listing_id]?.url) go.push([d, ch, text]);
     else skip.push([d, "no email, phone or link saved for the landlord"]);
@@ -881,7 +955,7 @@ async function sendAll(){
   const nm = (n) => plural(go.filter(([, ch]) => ch === n).length, "message");
   const pc = go.some(([, ch]) => ch !== "email"), fills = go.filter(([, , t]) => /\[YOUR ANSWER/i.test(t)).length;
   const parts = [["email", "by email"], ["kamernet", "on Kamernet"], ["whatsapp", "on WhatsApp"], ["site", "through the ad's own site"]].filter(([k]) => go.some(([, ch]) => ch === k)).map(([k, w]) => `${nm(k)} ${w}`);
-  if (!await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${parts.join(", ")}. Email goes from your Gmail within a minute; the rest from Chrome on your PC, one every 20-40 seconds${pc && !knOnline() ? " (<b>your PC seems off</b>, so they go out once it's on)" : ""}.</p>${fills ? `<p>${plural(fills, "message")} still had [YOUR ANSWER …] parts: Claude fills them in from your facts first, or writes around what it doesn't know.</p>` : ""}${skip.length ? `<p class="why">Can't be sent, no way to reach the landlord saved: ${skip.map(([d]) => esc(cache[d.listing_id]?.street || "a listing")).join(", ")}.</p>` : ""}` })) return;
+  if (!await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${parts.join(", ")}. Email goes from your Gmail within a minute; the rest from Chrome on your PC, one every 20-40 seconds${pc && !knOnline() ? " (<b>your PC seems off</b>, so they go out once it's on)" : ""}.</p>${fills ? `<p>${plural(fills, "message")} still had [YOUR ANSWER …] parts: Claude fills them in from your facts first, or writes around what it doesn't know.</p>` : ""}${skip.length ? `<p class="why">Not sent: ${skip.map(([d, why]) => `${esc(cache[d.listing_id]?.street || "a listing")} (${esc(why)})`).join(", ")}.</p>` : ""}` })) return;
   let ok = 0; const bad = [];
   toast(`Sending ${plural(go.length, "message")}…`);
   for (let [d, ch, text] of go){
@@ -896,10 +970,20 @@ async function sendAll(){
   }
   if (pc) window.postMessage({ type: "kn-sender-poke" }, location.origin);
   await loadDrafts(); renderAll(); watchSending();
-  toast(`${plural(ok, "message")} on the way.${bad.length ? " Couldn't send: " + bad.join("; ") : ""}${skip.length ? ` ${skip.length} have no landlord contact saved.` : ""}`, null, !!bad.length);
+  toast(`${plural(ok, "message")} on the way.${bad.length ? " Couldn't send: " + bad.join("; ") : ""}${skip.length ? ` ${skip.length} not sent (a question waits, or no landlord contact).` : ""}`, null, !!bad.length);
 }
 $("inboxv").addEventListener("click", async (e) => {
   if (e.target.closest(".sendall")) return sendAll();
+  if (await questionClick(e)) return;
+  const vb = e.target.closest("[data-verdict]");
+  if (vb){
+    const id = vb.closest(".vcard").dataset.vid, op = vb.dataset.verdict, before = { ...stOf(id) };
+    const set = { opinion: op, note: `${new Date().toISOString().slice(0, 10)}: after the viewing, Asa said: ${OP_LABEL[op]}` };
+    if (op === "no") set.closed = "me_no";
+    try { await setStand(id, set); renderAll(); toast(op === "no" ? "Closed: not for you." : `Saved: ${OP_LABEL[op]}`, standUndo(id, before)); } catch (err) { fail(err); }
+    return;
+  }
+  if (e.target.closest("a[href^='#l=']")) return;
   const it = e.target.closest(".ib");
   if (!it){ const c = e.target.closest("[data-id]"); if (c) openListing(Number(c.dataset.id), c.dataset.sec); return; }
   const iid = Number(it.dataset.iid), st = it.querySelector(".ist"), cands = it.querySelector(".icands");
@@ -927,7 +1011,7 @@ $("inboxv").addEventListener("click", async (e) => {
 });
 $("inboxv").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.closest(".ifind")) e.target.closest(".ib").querySelector(".ifindb").click();
-  else if (e.key === "Enter" && e.target.closest("article[data-id]")) openListing(Number(e.target.closest("article").dataset.id), "draft");
+  else if (e.key === "Enter" && e.target.matches("article[data-id]")) openListing(Number(e.target.closest("article").dataset.id), "draft");
 });
 
 // =====================================================================================
@@ -1125,7 +1209,7 @@ function chanOf(d){ // the channel the landlord last used; a first message goes 
 const waUrl = (phone, text) => `https://wa.me/${String(phone).replace(/\D/g, "").replace(/^00/, "").replace(/^0(?=6)/, "31")}?text=${encodeURIComponent(text)}`;
 const kamernetUrl = (d) => d.kind === "reply" && d.conv_id ? `https://kamernet.nl/en/my-messages/default/conversation/${d.conv_id}` : `https://kamernet.nl/en/react-to-listing/${d.listing_id}`;
 const WHY = {
-  kamernet: "Send for me types it into Kamernet and presses Send for you, using Chrome on your PC (where you're logged in). The PC must be on with Chrome open. Kamernet's rules don't allow this, so there's a small risk to your account; it only sends what you tap (one message, or Send all in Inbox), one every 20-40 seconds.",
+  kamernet: "Send for me types it into Kamernet and presses Send for you, using Chrome on your PC (where you're logged in). The PC must be on with Chrome open. Kamernet's rules don't allow this, so there's a small risk to your account; it only sends what you tap (one message, or Send all in To do), one every 20-40 seconds.",
   whatsapp: "WhatsApp can ban your number if a robot sends from it, so you send it yourself.",
   site: "This site only lets you reach the landlord through its own contact form, so you paste it there and press send yourself.",
 };
@@ -1148,14 +1232,13 @@ function draftSection(id){
     : `<div class="btnrow"><button class="btn" type="button" data-d="kn">Send for me${knOnline() ? "" : " (PC off)"}</button><button class="btn ghost" type="button" data-d="go" data-ch="kamernet">Copy and open Kamernet</button></div><p class="why">${WHY.kamernet}${knOnline() ? "" : " <b>Right now your PC seems off</b>, so Send for me would wait for it; Copy and open works anywhere."}</p>`;
   return `<h3>${d.kind === "reply" ? "Your reply" : "Your first message"} <small class="why">${esc({ kamernet: "on Kamernet", site: "on " + siteName(r.source), whatsapp: "on WhatsApp", email: "by email", other: "" }[ch])}</small></h3>
     ${d.send_status === "failed" ? `<div class="flags">Couldn't send it: ${esc(d.send_error || "unknown error")}. Try again, or copy it.</div>` : ""}
-    ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    ${(d.warnings || []).length || (d.notes || []).length ? `<div class="headsup"><b>Heads up</b><ul class="warns">${[...(d.warnings || []), ...(d.notes || [])].map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
     <div class="draft" data-aid="${d.id}">
-      ${(d.notes || []).length && !sending ? `<div class="decide"><b>Claude's questions and notes</b>${d.notes.map((n) => `<label><span>${esc(n)}</span><input class="dans" data-q="${esc(n)}" placeholder="Your answer (leave empty if it's just a note)"></label>`).join("")}<button class="btn small" type="button" data-d="redo">Put my answers in</button></div>` : ""}
+      ${questionsFor(d.id).length && !sending ? `<div class="decide"><b>Open ${questionsFor(d.id).length > 1 ? "questions" : "question"}</b><p class="why">Answer once: it's saved and used in every message that needs it.</p>${questionsFor(d.id).map(questionCard).join("")}</div>` : ""}
       <textarea id="dText" aria-label="Message" ${sending ? "disabled" : ""}>${esc(draftEdits[d.id] ?? d.draft)}</textarea><span class="saved" id="dSaved"></span>
       ${send}
       ${sending ? "" : `<div class="btnrow"><button class="btn ghost" type="button" data-d="done" data-ch="${ch}">I sent it</button><button class="btn ghost danger" type="button" data-d="del">Delete</button></div>
       <details data-k="redo"><summary>Change it with AI</summary><div class="fix" style="margin-top:6px"><input id="dNote" placeholder="e.g. shorter, say I can come Saturday, don't mention who comes along">
-        <label class="toggle small"><input type="checkbox" id="dRem" checked> Remember my answers for next time</label>
         <label class="toggle small"><input type="checkbox" id="dAlw"> Always write like this</label>
         <button class="btn ghost" type="button" data-d="redo">Rewrite</button></div></details>`}
     </div>`;
@@ -1244,6 +1327,7 @@ function standUndo(id, before){
 // ---- every button on the listing page ----
 $("lpBody").addEventListener("click", async (e) => {
   const id = lpId; if (!id) return;
+  if (await questionClick(e)) return;
   const b = e.target.closest("button"); if (!b) return;
   const before = { ...stOf(id) };
   try {
@@ -1256,7 +1340,7 @@ $("lpBody").addEventListener("click", async (e) => {
       if (op === "no" && !clear) set.closed = before.closed || "me_no";
       if ((op !== "no" || clear) && before.closed === "me_no") set.closed = null;
       await setStand(id, set);
-      if (op === "no" && !clear) toast("Closed: not for you. It's under Closed in My leads.", standUndo(id, before));
+      if (op === "no" && !clear) toast("Closed: not for you. It's under Closed in Places.", standUndo(id, before));
     } else if (b.dataset.verdict){
       const op = b.dataset.verdict, set = { opinion: op, note: `${new Date().toISOString().slice(0, 10)}: after the viewing, Asa said: ${OP_LABEL[op]}` };
       if (op === "no") set.closed = "me_no";
@@ -1285,14 +1369,15 @@ $("lpBody").addEventListener("click", async (e) => {
     } else if (b.dataset.a === "write"){
       b.disabled = true; b.textContent = "Writing… (about 10 seconds)";
       const d = await post("apply", { id: Number(id), reuse: true });
-      await loadDrafts(); lpRender(); renderAll();
+      await Promise.all([loadDrafts(), loadQuestions()]); lpRender(); renderAll();
       toast(d.reused ? "Here's the message you already had." : `Written · cost ${euro(d.cost_usd)}. Check it, then send it.`);
     } else if (b.dataset.a === "reply"){
       b.disabled = true; b.textContent = "Writing… (about 10 seconds)";
       const r = await post("replydraft", { id: Number(id), save: true, followup: !needsReply(id) });
       if (r.skipped){ lpRender(); return toast("Nothing to answer: the last message is yours."); }
       await loadDrafts(); lpRender(); renderAll();
-      toast(r.notes?.length ? "Written. Claude left you a question or note above the message." : "Written. Check it, then send it.");
+      await loadQuestions(); lpRender(); renderAll();
+      toast(r.questions?.length ? "Written. Claude needs one answer from you first (above the message)." : "Written. Check it, then send it.");
     } else if (b.dataset.a === "log" || b.dataset.me){
       const body = $("logBody").value.trim(); if (!body) return toast("Paste or write the message first.", null, true);
       const chat = parseChatExport(body);
@@ -1340,7 +1425,7 @@ async function draftAction(b){
   const id = lpId, box = b.closest(".draft"), aid = Number(box?.dataset.aid), d = drafts.find((x) => x.id === aid), c = contacts[id] || {}, text = $("dText")?.value || "";
   const act = b.dataset.d;
   if (["go", "mail", "kn", "done"].includes(act) && /\[YOUR ANSWER/i.test(text)) // never let a placeholder go out
-    return toast("Fill in the [YOUR ANSWER …] parts first: answer the questions above and press “Put my answers in”, or edit the text.", null, true);
+    return toast("Fill in the [YOUR ANSWER …] parts first: answer the question above, or edit the text.", null, true);
   if (act === "go"){
     const ch = b.dataset.ch, p = navigator.clipboard?.writeText(text);   // copy and open in the same tap, so the browser allows both
     const u = ch === "whatsapp" ? (c.phone ? waUrl(c.phone, text) : "")
@@ -1375,17 +1460,16 @@ async function draftAction(b){
     if (!await confirmBox({ title: "Delete this message?", ok: "Delete", danger: true, body: "<p>Claude can write a new one any time.</p>" })) return;
     await post("apply", { action: "discard", application_id: aid }); delete draftEdits[aid]; await loadDrafts(); lpRender(); renderAll(); toast("Deleted.");
   } else if (act === "redo"){
-    const answers = [...box.querySelectorAll(".dans")].map((x) => ({ question: x.dataset.q, answer: x.value.trim() })).filter((x) => x.answer);
     const instruction = $("dNote")?.value.trim() || "";
-    if (!answers.length && !instruction) return toast("Write what to change (or answer a question above) first.", null, true);
+    if (!instruction) return toast("Write what to change first.", null, true);
     b.disabled = true; b.textContent = "Rewriting…";
     await saveDraftNow(aid);
-    await post("replydraft", { action: "redo", application_id: aid, instruction, answers, remember: !!$("dRem")?.checked, always: !!$("dAlw")?.checked });
+    await post("replydraft", { action: "redo", application_id: aid, instruction, always: !!$("dAlw")?.checked });
     await loadDrafts(); lpRender(); toast("Rewritten.");
   }
 }
 // "You decide" answers: pressing Enter rewrites
-$("lpBody").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.target.classList.contains("dans") || e.target.id === "dNote")){ e.preventDefault(); $("lpBody").querySelector('[data-d="redo"]')?.click(); } });
+$("lpBody").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "dNote"){ e.preventDefault(); $("lpBody").querySelector('[data-d="redo"]')?.click(); } });
 function watchSending(){ // while a message is going out, check again so it shows as sent
   clearTimeout(watchSending.t);
   if (!unsent().some(isSending)) return;
@@ -1531,9 +1615,9 @@ async function dealClick(e, b){
   } else if (b.dataset.s === "bye"){
     const others = Object.keys(statuses).filter((x) => x !== id && !isClosed(x) && ["replied", "booked", "viewed", "offer"].includes(stOf(x).stage));
     if (!others.length) return toast("There are no other places you're talking to.");
-    if (!await confirmBox({ title: `Write a goodbye to ${plural(others.length, "landlord")}?`, ok: "Write them", body: "<p>A short “I found a place, thanks” message for each. Nothing is sent: they land in your Inbox, where you send each one yourself.</p>" })) return;
+    if (!await confirmBox({ title: `Write a goodbye to ${plural(others.length, "landlord")}?`, ok: "Write them", body: "<p>A short “I found a place, thanks” message for each. Nothing is sent: they land in To do, where you send each one yourself.</p>" })) return;
     const r = await dealCall(id, { action: "goodbyes" }); await loadDrafts(); renderAll();
-    toast(`${plural(r.drafted, "goodbye")} written.`, { label: "Open Inbox", fn: () => { $("lp").close(); showTab("inbox"); } });
+    toast(`${plural(r.drafted, "goodbye")} written.`, { label: "Open To do", fn: () => { $("lp").close(); showTab("inbox"); } });
   }
 }
 async function dealChange(e){
@@ -1705,9 +1789,9 @@ async function drawHealth(){
       : line("ok", `New listings from ${sites.sites.filter((s) => s.enabled).map((s) => s.name).join(", ")}: read ${ago(sites.sites.filter((s) => s.enabled).map((s) => s.last_run_at).sort()[0])} or later`),
     h.sweep?.at ? line(h.sweep.ok !== false ? "ok" : "bad", `Nightly clean-up of removed ads: ran ${ago(h.sweep.at)}`) : line("bad", "Nightly clean-up of removed ads hasn't run in the last day"),
     h.gmail_ping ? (gmailOk() ? line("ok", `Kamernet messages and landlord emails: checked ${ago(h.gmail_ping)}`) : line("bad", `Gmail check stopped: last run ${ago(h.gmail_ping)}`)) : line("warn", `Kamernet messages and landlord emails: ${notYet}`),
-    Number(h.gmail_version || 0) >= 2 && gmailOk() ? line(h.failed_emails ? "bad" : "ok", `Send for me (email): ready${h.queued_emails ? ` · ${h.queued_emails} going out` : ""}${h.failed_emails ? ` · ${h.failed_emails} failed (open them in Inbox)` : ""}`) : line("warn", `Send for me (email): ${h.gmail_ping ? "needs the newer Gmail connection (Claude updates it in a chat)" : notYet}`),
+    Number(h.gmail_version || 0) >= 2 && gmailOk() ? line(h.failed_emails ? "bad" : "ok", `Send for me (email): ready${h.queued_emails ? ` · ${h.queued_emails} going out` : ""}${h.failed_emails ? ` · ${h.failed_emails} failed (open them in To do)` : ""}`) : line("warn", `Send for me (email): ${h.gmail_ping ? "needs the newer Gmail connection (Claude updates it in a chat)" : notYet}`),
     !h.kn_sender_ping ? line("warn", "Send for me (Kamernet): not set up yet (Claude installs the helper in Chrome on your PC, in a chat)")
-      : line(h.kn_failed ? "bad" : knOnline() ? "ok" : "warn", `Send for me (Kamernet): ${knOnline() ? "ready, your PC is on" : `your PC is off or Chrome is closed (last seen ${ago(h.kn_sender_ping)}); messages wait until it's back`}${h.kn_queued ? ` · ${h.kn_queued} going out` : ""}${h.kn_failed ? ` · ${h.kn_failed} failed (open them in Inbox)` : ""}${h.kn_sender_last_sent ? ` · last sent ${ago(h.kn_sender_last_sent)}` : ""}`),
+      : line(h.kn_failed ? "bad" : knOnline() ? "ok" : "warn", `Send for me (Kamernet): ${knOnline() ? "ready, your PC is on" : `your PC is off or Chrome is closed (last seen ${ago(h.kn_sender_ping)}); messages wait until it's back`}${h.kn_queued ? ` · ${h.kn_queued} going out` : ""}${h.kn_failed ? ` · ${h.kn_failed} failed (open them in To do)` : ""}${h.kn_sender_last_sent ? ` · last sent ${ago(h.kn_sender_last_sent)}` : ""}`),
     // since 25 Oct 2026 the Chrome helper reads WhatsApp Web on the PC (the phone forwarder never worked)
     h.wa_read && Date.now() - Date.parse(h.wa_read) < 10 * 60000
       ? line(h.wa_read_error ? "bad" : "ok", h.wa_read_error ? `WhatsApp from landlords: your PC can't read WhatsApp Web (${esc(String(h.wa_read_error).slice(0, 120))}). Open web.whatsapp.com in Chrome on your PC and scan the QR code with your phone if it asks.`
@@ -1826,7 +1910,7 @@ function renderAll(){
 // quiet = the timer did it: don't redraw an open listing while you're typing in it
 async function refreshAll(quiet = false){
   // one part failing (a slow function, a bad answer) must not stop the rest
-  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadDeals(), loadInbox(), loadSites(), headline(), refreshRows(leadIds())]);
+  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadDeals(), loadInbox(), loadSites(), headline(), refreshRows(leadIds())]);
   const typing = document.activeElement?.closest?.("#lp") && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
   try { if (lpId){ await loadThread(lpId); if (!(quiet && typing)) lpRender(); } } catch {}
   try { renderAll(); } catch {}
@@ -1836,13 +1920,14 @@ async function refreshAll(quiet = false){
 setInterval(() => { if (document.visibilityState === "visible" && pass && !$("app").hidden) refreshAll(true).catch(() => {}); }, 30000);
 const hashId = () => (location.hash.match(/l=(\d+)/) || [])[1] || null;
 const openSites = () => { showTab("more"); setTimeout(() => $("sitesPanel").scrollIntoView({ behavior: "smooth" }), 50); history.replaceState(null, "", location.pathname + location.search); };
-window.addEventListener("hashchange", () => { if (pass && location.hash === "#sites") openSites(); else if (pass && hashId() && hashId() !== lpId) openListing(hashId()); });
+window.addEventListener("hashchange", () => { if (pass && location.hash === "#todo"){ showTab("inbox"); history.replaceState(null, "", location.pathname + location.search); } else if (pass && location.hash === "#sites") openSites(); else if (pass && hashId() && hashId() !== lpId) openListing(hashId()); });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && pass && !$("app").hidden) refreshAll(); });
 async function boot(){
   $("sort").value = S.sort; drawSortDir();
   renderLoc(); renderActive(); applyView();
-  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts()]);
-  showTab(["find", "leads", "inbox", "more"].includes(S.tab) ? S.tab : "find");
+  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions()]);
+  showTab(location.hash === "#todo" ? "inbox" : ["find", "leads", "inbox", "more"].includes(S.tab) ? S.tab : "find");
+  if (location.hash === "#todo") history.replaceState(null, "", location.pathname + location.search);
   load(true); headline(); loadTags(); loadCities(); loadInbox(); loadSites();
   renderLeads(); watchSending();
   if (hashId()) openListing(hashId()); // a phone alert opened one listing
