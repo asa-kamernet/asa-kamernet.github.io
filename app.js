@@ -241,7 +241,7 @@ function filters(){
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
 }
-const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,check_reasons,dup_of,dup_ignore";
+const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,form_bills:facts->form_bills,check_reasons,dup_of,dup_ignore";
 const qs = (extra) => [...filters(), `order=${orderBy()}`, ...extra].join("&");
 // with a Location and a distance, only listings within that many km (a city + distance = the whole city plus that far around it)
 const nearOn = () => S.loc && S.loc.km > 0 && S.loc.lat != null;
@@ -1257,6 +1257,7 @@ function lpRender(){
       <div id="lpDups">${dupsHtml(id)}</div>
     </div>
     ${msgFactsHtml(r)}
+    ${clashHtml(r)}
     ${closed ? `<div class="closedbar"><span>Closed: ${esc(x.closed ? CLOSED_LABEL[x.closed] : "Not for me")}</span><button class="btn small ghost" type="button" data-a="reopen">Reopen</button></div>` : ""}
     ${needsVerdict(id) ? `<section class="sec hi" id="lp-verdict"><h3>You viewed it ${x.viewing_at ? esc(when(x.viewing_at)) : ""}. How was it?</h3>
       <div class="opts">${OPINIONS.map(([k, t], i) => `<button class="btn${i ? " ghost" : ""}" type="button" data-verdict="${k}">${t}</button>`).join("")}</div></section>` : ""}
@@ -1317,6 +1318,29 @@ function msgFactsHtml(r){
   return `<section class="sec" id="lp-mf"><h3>What they told you in messages</h3>
     <p class="why">Newer than the ad, so these are used above and in the deal.</p>
     <ul class="mflist">${rows.join("")}${notes.join("")}</ul></section>`;
+}
+// ---- where the ad says two different things (Asa, 27 Oct 2026): conditions (bills, furnished, registration) follow the
+// text, numbers follow the form, unless the form is clearly a typo; what the landlord said in a message beats both ----
+const CLASH_MF = { rent: "price", bills: "utilities_incl", deposit: "deposit", available_from: "available_from", available_until: "available_until", people: "people" };
+const CLASH_TEXT_WINS = ["bills", "furnished", "registration"];
+function clashes(r){
+  const d = r.distilled || {}, list = Array.isArray(d.conflicts) ? d.conflicts.filter((c) => c && c.what) : [];
+  const b = d.costs?.bills, fb = r.form_bills; // only summaries made since 27 Oct (they carry conflicts) judge bills
+  if (Array.isArray(d.conflicts) && (b === "included" || b === "extra") && typeof fb === "boolean" && fb !== (b === "included") && !list.some((c) => c.what === "bills"))
+    list.push({ what: "bills", form: fb ? "included" : "extra", text: b === "included" ? "bills included" : "bills extra" });
+  return list;
+}
+function clashHtml(r){
+  const list = clashes(r); if (!list.length) return "";
+  const mf = r._mf || {};
+  const rows = list.map((c) => {
+    const k = CLASH_MF[c.what], settled = k && mf[k];
+    const used = settled ? `settled by their message: ${esc(mfVal(k, mf[k].v))}` : CLASH_TEXT_WINS.includes(c.what) ? "using the text" : "using the form, check with them";
+    return `<li><b>${esc(cap(String(c.what).replace(/_/g, " ")))}</b>: the form says ${esc(c.form)}, the text says ${esc(c.text)} <span class="why">· ${used}</span></li>`;
+  });
+  return `<section class="sec" id="lp-clash"><h3>The ad says two different things</h3>
+    <p class="why">The written text wins for conditions like bills, the form for numbers. Their messages beat both. Your draft asks them to confirm.</p>
+    <ul class="mflist">${rows.join("")}</ul></section>`;
 }
 async function clearFact(id, key, index){
   const r = await post("status", { id: Number(id), action: "clearfact", set: { key, index } });
