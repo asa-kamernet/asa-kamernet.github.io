@@ -1919,7 +1919,9 @@ async function drawHealth(){
   $("health").innerHTML = [
     !sites ? line("warn", "New listings: loading…") : sites.sites.some(siteBad) ? line("bad", `New listings: ${sites.sites.filter(siteBad).map((s) => s.name).join(", ")} need${sites.sites.filter(siteBad).length > 1 ? "" : "s"} a look (see Sites below)`)
       : line("ok", `New listings from ${sites.sites.filter((s) => s.enabled).map((s) => s.name).join(", ")}: read ${ago(sites.sites.filter((s) => s.enabled).map((s) => s.last_run_at).sort()[0])} or later`),
-    h.sweep?.at ? line(h.sweep.ok !== false ? "ok" : "bad", `Nightly clean-up of removed ads: ran ${ago(h.sweep.at)}`) : line("bad", "Nightly clean-up of removed ads hasn't run in the last day"),
+    h.sweep_result?.ok === false ? line("bad", `Clean-up of removed ads gave up ${ago(h.sweep_result.at)} (${h.sweep_result.reason})`)
+      : h.sweep?.at ? line(h.sweep.ok !== false ? "ok" : "bad", `Clean-up of removed ads (every 2 hours): ran ${ago(h.sweep.at)}${h.sweep_result?.remaining ? `, ${h.sweep_result.remaining} still to check` : ""}`)
+      : line("bad", "Clean-up of removed ads hasn't run in the last 4 hours"),
     h.gmail_ping ? (gmailOk() ? line("ok", `Kamernet messages and landlord emails: checked ${ago(h.gmail_ping)}`) : line("bad", `Gmail check stopped: last run ${ago(h.gmail_ping)}`)) : line("warn", `Kamernet messages and landlord emails: ${notYet}`),
     Number(h.gmail_version || 0) >= 2 && gmailOk() ? line(h.failed_emails ? "bad" : "ok", `Send for me (email): ready${h.queued_emails ? ` · ${h.queued_emails} going out` : ""}${h.failed_emails ? ` · ${h.failed_emails} failed (open them in To do)` : ""}`) : line("warn", `Send for me (email): ${h.gmail_ping ? "needs the newer Gmail connection (Claude updates it in a chat)" : notYet}`),
     !h.kn_sender_ping ? line("warn", "Send for me (Kamernet): not set up yet (Claude installs the helper in Chrome on your PC, in a chat)")
