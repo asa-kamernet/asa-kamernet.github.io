@@ -17,7 +17,7 @@ const STAGES = ["none","applied","replied","booked","viewed","offer","signed"];
 const STAGE_LABEL = { none: "Not contacted", applied: "Applied", replied: "They replied", booked: "Viewing booked", viewed: "Viewed", offer: "Offer", signed: "Signed" };
 const OPINIONS = [["want","★ Want it"],["interested","Interested"],["hold","Hold off"],["no","Not for me"]];
 const OP_LABEL = Object.fromEntries(OPINIONS);
-const CLOSED_LABEL = { them_no: "They said no", me_no: "I said no", gone: "Listing gone", scam: "Scam" };
+const CLOSED_LABEL = { them_no: "They said no", me_no: "I said no", gone: "Listing gone", scam: "Scam", no_reply: "No reply" };
 const CITIES = ["Rotterdam","Amsterdam","Den Haag","Utrecht","Delft","Nijmegen"];
 const CHAN = { kamernet: "Kamernet", site: "The ad's site", whatsapp: "WhatsApp", email: "Email", other: "Other" };
 const USD_EUR = 0.93;
@@ -1190,7 +1190,7 @@ function lpRender(){
       <div><span class="lbl">My opinion</span><div class="opts">${OPINIONS.map(([k, t]) => `<button type="button" class="chip" data-op="${k}" aria-pressed="${x.opinion === k}">${t}</button>`).join("")}</div></div>
       ${whoLine(id)}
       <label class="field">Viewing (date and time)<div class="btnrow"><input type="datetime-local" id="lpView" value="${toLocalInput(x.viewing_at)}" style="flex:1">${x.viewing_at ? '<button class="btn ghost small" type="button" data-a="noview">Clear</button>' : ""}</div></label>
-      ${closed ? "" : `<details data-k="close"${open.includes("close") ? " open" : ""}><summary>Close this lead…</summary><div class="opts" style="margin-top:6px">${Object.entries(CLOSED_LABEL).map(([k, t]) => `<button class="btn ghost small danger" type="button" data-close="${k}">${t}</button>`).join("")}</div></details>`}
+      ${closed ? "" : `<details data-k="close"${open.includes("close") ? " open" : ""}><summary>Close this lead…</summary><div class="opts" style="margin-top:6px">${Object.entries(CLOSED_LABEL).filter(([k]) => k !== "no_reply").map(([k, t]) => `<button class="btn ghost small danger" type="button" data-close="${k}">${t}</button>`).join("")}</div></details>`}
     </section>
     <section class="sec" id="lp-draft">${draftSection(id)}</section>
     <section class="sec" id="lp-conv"><h3>Conversation${threads[id] ? ` <small class="why">${plural(threads[id].n, "message")}</small>` : ""}</h3>
