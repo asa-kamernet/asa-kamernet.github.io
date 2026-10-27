@@ -1050,7 +1050,10 @@ async function renderInbox(){
   const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : i.source === "email" ? `Email from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
   const group = (title, note, html) => html ? `<section class="group"><h2>${title}${note ? ` <small>${note}</small>` : ""}</h2>${html}</section>` : "";
   const plan = sendAllPlan(p.ready);
+  // PC-only sends (Kamernet, WhatsApp, ad sites) wait in kn-send while the PC is off; turning the PC on sends them (up to 3 days)
+  const pcWait = !knOnline() && Number(inbox?.health?.kn_queued || 0);
   $("inboxv").innerHTML = [
+    pcWait ? `<p class="why pcwait"><b>${plural(pcWait, "message")} waiting for your PC</b>: they go out when it's on (with Chrome open).</p>` : "",
     group("Questions for you", "answer once", questions.map(questionCard).join("") + p.verdicts.map(vcard).join("")),
     group("Ready to send", p.ready.length ? "check each one, then send it" : "",
       (plan.go.length ? `<div class="btnrow"><button class="btn small sendall" type="button">Send all (${plan.go.length})</button></div>` : "")
@@ -1355,7 +1358,7 @@ function draftSection(id){
   }
   const ch = chanOf(d), sending = isSending(d);
   const send = d.send_status === "kn_sending" ? `<div class="btnrow"><b>Sending on Kamernet now…</b></div><p class="why">Chrome on your PC is typing it into Kamernet. It shows in the conversation when it's out.</p>`
-    : d.send_status === "kn_queued" ? `<div class="btnrow"><b>Waiting for your PC to send it on Kamernet…</b><button class="btn ghost small" type="button" data-d="unqueue">Cancel</button></div><p class="why">${knOnline() ? "Your PC is on: it goes out within a minute or two." : "Your PC seems to be off or Chrome is closed. It goes out as soon as it's back (within 12 hours, or it's cancelled). In a hurry? Cancel, then use Copy and open Kamernet."}</p>`
+    : d.send_status === "kn_queued" ? `<div class="btnrow"><b>Waiting for your PC to send it on Kamernet…</b><button class="btn ghost small" type="button" data-d="unqueue">Cancel</button></div><p class="why">${knOnline() ? "Your PC is on: it goes out within a minute or two." : "Your PC seems to be off or Chrome is closed. It goes out as soon as it's back (it waits up to 3 days). In a hurry? Cancel, then use Copy and open Kamernet."}</p>`
     : sending ? `<div class="btnrow"><b>Sending by email to ${esc(c.email || "the landlord")}…</b><button class="btn ghost small" type="button" data-d="unqueue">Cancel</button></div><p class="why">It goes out from your Gmail within a minute, then shows in the conversation.</p>`
     : ch === "email" ? `<div class="btnrow"><button class="btn" type="button" data-d="mail">Send for me</button><button class="btn ghost" type="button" data-d="go" data-ch="email">Copy and open email</button></div><p class="why">Send for me emails ${esc(c.email)} from your own Gmail, as a reply in your thread with them.</p>`
     : ch === "whatsapp" ? `<div class="btnrow"><button class="btn" type="button" data-d="go" data-ch="whatsapp">${c.phone ? "Copy and open WhatsApp" : "Copy it"}</button></div><p class="why">${WHY.whatsapp}${c.phone ? "" : " Save their number under Landlord to open their chat directly."}</p>`
@@ -1935,6 +1938,12 @@ async function drawHealth(){
       : h.phone_last ? line("ok", `WhatsApp from landlords (your phone): last one ${ago(h.phone_last)}`)
       : h.phone_seen ? line("bad", `WhatsApp from landlords (your phone): MacroDroid reached Kamernet Live ${ago(h.phone_seen)} but the message was unusable (${esc(String(h.phone_result || "unknown").slice(0, 120))})`)
       : line("warn", `WhatsApp from landlords (your phone): MacroDroid has never reached Kamernet Live`),
+    // since 27 Oct 2026 (helper 2.4) the PC also reads Kamernet's own chat log, both sides, about every 2 min
+    !h.kn_read ? null
+      : Date.now() - Date.parse(h.kn_read) < 10 * 60000
+      ? line(h.kn_read_error ? "bad" : "ok", h.kn_read_error ? `Kamernet chat log: your PC can't read it (${esc(String(h.kn_read_error).slice(0, 120))}). Open kamernet.nl in Chrome on your PC and log in if it asks.`
+        : `Kamernet chat log: read from Kamernet on your PC, checked ${ago(h.kn_read)}. Alerts still come from Gmail.`)
+      : line("warn", `Kamernet chat log: your PC is off or Chrome is closed (last read ${ago(h.kn_read)}); it catches up when it's back`),
     inbox.push_devices ? line("ok", `Alerts on ${plural(inbox.push_devices, "device")}${mine ? " (this one too)" : " (not this one)"}${h.last_push ? ` · last alert ${ago(h.last_push)}` : ""}`) : line("warn", "Alerts: no phone has them on yet"),
     h.remind_last_run ? line(fresh(h.remind_last_run, 30) ? "ok" : "bad", `Viewing and payment reminders: checked ${ago(h.remind_last_run)}`) : line("warn", "Viewing and payment reminders: not run yet"),
     h.ask_last_error ? line("bad", `Tell Claude: last error ${esc(String(h.ask_last_error).slice(0, 160))}`) : line("ok", `Tell Claude: working${h.ask_last_run ? " · last request " + ago(String(h.ask_last_run).slice(0, 24)) : ""}`),
