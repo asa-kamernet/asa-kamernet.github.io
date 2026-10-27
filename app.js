@@ -84,7 +84,7 @@ const SORTS = {
   status: ["Status", "desc", "Just contacted first", "Furthest along first"],
 };
 if (!SORTS[S.sort]) S.sort = "per_person";
-const orderBy = () => S.sort === "status" ? "first_seen_at.desc" : `${S.sort}.${S.dir}.nullslast`;
+const orderBy = () => S.sort === "status" ? "first_seen_at.desc" : `${S.sort === "per_person" ? "pp_allin" : S.sort}.${S.dir}.nullslast`;
 // Status sort: places you're in touch with come first (furthest along or just started), then everything else, newest first
 const statusRank = (id) => STAGES.indexOf(stageOf(String(id))) * 10 + ({ want: 3, interested: 2, hold: 1 }[stOf(String(id)).opinion] ?? 0);
 const statusIds = () => Object.keys(statuses).filter((id) => !isClosed(id) && statusRank(id) > 0);
@@ -127,6 +127,9 @@ const knOnline = () => { const p = inbox?.health?.kn_sender_ping; return !!p && 
 const yourMove = (id) => needsReply(id) || needsVerdict(id) || draftReady(id) || (!isClosed(id) && payToApprove(id));
 const divisor = (r) => r.people == null ? null : r.people > 1 ? Math.max(1, Math.min(S.ppl, r.people)) : 1;
 const ppOf = (r) => { const d = divisor(r); return d ? Math.round(r.price / d) : null; };
+// sort and filter on what you'd really pay (Asa, 27 Oct 2026): a price without bills gets typical bills added (same numbers as DB column price_allin)
+const billsEst = (r) => r.utilities_incl === false ? (r.kind === "apartment" ? 200 : r.kind === "studio" ? 150 : 100) : 0;
+const ppAllOf = (r) => { const d = divisor(r); return d && r.price != null ? Math.round((r.price + billsEst(r)) / d) : null; };
 const dealStarted = (id) => !!deals[id] || ["offer", "signed"].includes(stageOf(String(id)));
 const viewingDone = (id) => !!stOf(id).viewing_at && Date.parse(stOf(id).viewing_at) < Date.now();
 
@@ -220,9 +223,9 @@ function filters(){
   if (S.max < 2500){
     // price / min(people sharing, people allowed) <= max, written out for each number of people allowed.
     // Unknown number of people counts as 1, so its whole price must fit.
-    const alts = [`and(people.is.null,price.lte.${S.max})`, `and(people.lte.1,price.lte.${S.max})`];
-    for (let k = 2; k < S.ppl; k++) alts.push(`and(people.eq.${k},price.lte.${S.max * k})`);
-    alts.push(`and(people.gte.${Math.max(2, S.ppl)},price.lte.${S.max * S.ppl})`);
+    const alts = [`and(people.is.null,price_allin.lte.${S.max})`, `and(people.lte.1,price_allin.lte.${S.max})`];
+    for (let k = 2; k < S.ppl; k++) alts.push(`and(people.eq.${k},price_allin.lte.${S.max * k})`);
+    alts.push(`and(people.gte.${Math.max(2, S.ppl)},price_allin.lte.${S.max * S.ppl})`);
     ands.push(`or(${alts.join(",")})`);
   }
   if (S.cheap !== "show") ands.push("or(per_person.gte.250,per_person.is.null)"); // prices under €250 are almost always typos
@@ -275,7 +278,7 @@ function postedTxt(p){
 function priceHtml(r){
   r = eff(r);
   const pp = ppOf(r);
-  return `<span class="price">${eur(pp ?? r.price)}<small>${pp != null && divisor(r) > 1 ? " pp" : pp != null ? " /mo" : " total"}</small></span>`;
+  return `<span class="price">${eur(pp ?? r.price)}<small>${pp != null && divisor(r) > 1 ? " pp" : pp != null ? " /mo" : " total"}${r.utilities_incl === false ? " + bills" : ""}</small></span>`;
 }
 function statePill(id){
   id = String(id);
@@ -310,7 +313,7 @@ function cardHtml(r){
   </article>`;
 }
 function renderList(){
-  if (S.sort === "per_person"){ const dir = S.dir === "desc" ? -1 : 1, k = (r) => ppOf(r) ?? dir * 1e9; loaded.sort((a, b) => dir * (k(a) - k(b))); }
+  if (S.sort === "per_person"){ const dir = S.dir === "desc" ? -1 : 1, k = (r) => ppAllOf(eff(r)) ?? dir * 1e9; loaded.sort((a, b) => dir * (k(a) - k(b))); }
   $("list").innerHTML = loaded.length ? loaded.map(cardHtml).join("")
     : `<div class="empty"><b>Nothing matches.</b><span>Try a bigger distance, a higher price, or fewer filters.</span>${activeFilters().length ? '<button class="btn ghost" type="button" data-act="reset">Reset all filters</button>' : ""}</div>`;
   $("count").textContent = `${plural(total, "listing")}${loaded.length < total ? ` · showing ${loaded.length}` : ""}`;
