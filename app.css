@@ -278,8 +278,6 @@ details>summary{cursor:pointer;font-weight:500;color:var(--accent);padding:4px 0
 .sitelog{margin-top:10px;font-size:13px}
 .sitelog .ev{padding:6px 0;border-top:1px solid var(--line)}
 .sitelog .ev small{color:var(--muted)}
-.addsite{display:grid;gap:8px}
-@media (min-width:640px){.addsite{grid-template-columns:2fr 1fr auto}}
 .melist{display:flex;flex-direction:column;gap:10px}
 .melist h4{margin:6px 0 0;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 .fact{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}

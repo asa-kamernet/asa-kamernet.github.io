@@ -1925,31 +1925,12 @@ function drawSites(){
       ${s.state_note && s.state !== "ok" ? `<p class="why">${esc(cap(s.state_note))}</p>` : ""}
       <div class="facts"><span>${plural(s.listings, "open listing")}</span>${s.last_run_at ? `<span>Read ${ago(s.last_run_at)}</span>` : ""}${s.last_new_at ? `<span>Newest ${ago(s.last_new_at)}</span>` : ""}
         ${s.recipe_version ? `<span>Recipe ${s.recipe_version}${s.learned_at ? `, learned ${ago(s.learned_at)}` : ""}${by ? ` (${esc(by)})` : ""}</span>` : ""}${s.fetch_via === "db" ? "<span>Read through the database server</span>" : ""}</div>
-      <div class="btnrow"><button class="btn ghost small" type="button" data-s="run">Check now</button><button class="btn ghost small" type="button" data-s="learn">Re-learn</button>
-        <label class="toggle small"><input type="checkbox" data-s="enable" ${s.enabled ? "checked" : ""}> On</label></div>
+      <div class="btnrow"><label class="toggle small"><input type="checkbox" data-s="enable" ${s.enabled ? "checked" : ""}> On</label></div>
     </div>`;
   }).join("") || '<p class="why">No sites yet.</p>';
   const KIND = { learned: "Learned", learn_failed: "Couldn't learn", broken: "Broke", blocked: "Blocked", quiet: "Quiet", recovered: "Recovered" };
   $("sitelog").innerHTML = (sites.log || []).slice(0, 15).map((l) => `<div class="ev"><b>${esc(siteName(l.site))}: ${esc(KIND[l.kind] || l.kind)}</b> <small>${ago(l.at)}${l.cost_usd ? " · " + euro(Number(l.cost_usd)) : ""}</small><br>${esc(l.note)}</div>`).join("") || '<p class="why">Nothing yet.</p>';
 }
-$("sites").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-s]"), box = e.target.closest("[data-site]");
-  if (!b || !box || b.dataset.s === "enable") return;
-  const code = box.dataset.site, name = siteName(code);
-  b.disabled = true; const was = b.textContent; b.textContent = b.dataset.s === "run" ? "Checking…" : "Learning…";
-  try {
-    if (b.dataset.s === "run"){
-      const r = await fn(`reader?run=new&site=${encodeURIComponent(code)}`);
-      toast(r.problems?.length && !r.saved ? `${name}: ${r.problems[0]}` : `${name}: ${plural(r.found || 0, "listing")} on the page, ${r.saved || 0} new saved`);
-    } else {
-      if (!(await confirmBox({ title: `Re-learn ${name}?`, body: `<p>The AI writes a new recipe for ${esc(name)}'s search page and listing pages. The new one is only used if it passes the checks. About ${euro(0.05)}.</p>`, ok: "Re-learn" }))) return;
-      const a = await post("reader", { action: "learn", site: code, part: "search" });
-      const d = a.ok ? await post("reader", { action: "learn", site: code, part: "detail" }) : a;
-      toast(a.ok && d.ok ? `${name}: learned again and checked` : `${name}: couldn't learn it (${(d.note || d.error || "").slice(0, 120)})`, null, !(a.ok && d.ok));
-    }
-  } catch (err) { toast(`${name}: ${err.message}`, null, true); }
-  finally { b.disabled = false; b.textContent = was; loadSites(); }
-});
 $("sites").addEventListener("change", async (e) => {
   const c = e.target.closest("[data-s=enable]"), box = e.target.closest("[data-site]");
   if (!c || !box) return;
@@ -1957,17 +1938,6 @@ $("sites").addEventListener("change", async (e) => {
   catch (err) { c.checked = !c.checked; toast(err.message, null, true); }
   loadSites();
 });
-$("siteAdd").onclick = async () => {
-  const url = $("siteUrl").value.trim(), name = $("siteName").value.trim(), msg = $("siteMsg");
-  if (!/^https?:\/\/\S+\.\S+/.test(url)){ msg.textContent = "Paste the full link, starting with https://"; return; }
-  $("siteAdd").disabled = true; msg.textContent = "Learning the site. This takes about a minute; you can keep using the app.";
-  try {
-    const r = await post("reader", { action: "add", url, name });
-    msg.textContent = r.ok ? `Done: ${r.run?.found ?? 0} listings on the page, ${r.run?.saved ?? 0} saved. It's now read every 15 minutes (cost ${euro(r.cost_usd || 0)}).` : `Couldn't add it: ${r.error}${r.note ? ` (${String(r.note).slice(0, 160)})` : ""}`;
-    if (r.ok){ $("siteUrl").value = ""; $("siteName").value = ""; headline(); load(true); }
-  } catch (e) { msg.textContent = e.message.includes("timed") || e.message.includes("Failed to fetch") ? "Still learning in the background. Check back here in a minute." : "Couldn't add it: " + e.message; }
-  $("siteAdd").disabled = false; loadSites();
-};
 async function loadInbox(){
   if (!pass) return;
   try { inbox = await fn("inbox?setup=1"); inbox.at = Date.now(); } catch { return; }
