@@ -186,6 +186,7 @@ function showTab(tab){
   for (const v of ["find", "leads", "inbox", "more"]) $("v-" + v).hidden = v !== tab;
   document.querySelectorAll(".tabs button").forEach((b) => { if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
   if (tab !== "find") setSelect(false);
+  if (tab !== "leads" && lselecting) lSetSelect(false);
   if (tab === "leads") renderLeads();
   if (tab === "inbox") renderInbox();
   if (tab === "more"){ drawHealth(); drawSites(); loadSites(); loadFacts(); loadPeople().then(drawPeople); }
@@ -657,7 +658,7 @@ const MAX_WRITE = 60, MAX_AI = 25;
 const BLOCKING = "students-only,women-only,dutch-only,offsite-contact,scam-risk";
 function setSelect(on){
   selecting = on; document.body.classList.toggle("selecting", on);
-  $("selbar").hidden = !on; $("selbtn").textContent = on ? "Done" : "Select";
+  $("selbar").hidden = !on; $("selbtn").textContent = on ? "Done" : "Select several";
   if (!on){ picked.clear(); document.querySelectorAll(".card.picked").forEach((c) => c.classList.remove("picked")); }
   else { if (S.view === "map"){ S.view = "list"; persist(); applyView(); } refreshEligible(); }
   syncSelect();
@@ -692,6 +693,14 @@ async function refreshEligible(){
   } catch { eligible = []; }
   syncSelect();
 }
+// "Many at once" row above the list (Asa, 27 Oct 2026): the bulk actions without first finding Select mode
+$("bkpick").onclick = async () => {
+  setSelect(true); await refreshEligible();
+  if (!eligible.length) return toast("No good matches right now: everything that fits has been contacted or has no AI summary yet. Try “AI summaries for new ones” first.");
+  $("selpick").onclick();
+};
+$("bkai").onclick = () => { setSelect(true); $("selai").onclick(); };
+$("bksel").onclick = () => setSelect(true);
 $("selpick").onclick = () => {
   const ids = eligible.filter((id) => !picked.has(id)).slice(0, 10);
   ids.forEach((id) => picked.add(id)); renderList();
@@ -994,7 +1003,7 @@ async function renderLeads(){
     const body = `“${t.last_body.slice(0, 110)}${t.last_body.length > 110 ? "…" : ""}”`;
     return viewing + (t.last_dir === "in" ? `They wrote ${ago(t.last_at)}: ${body}` : `You wrote ${ago(t.last_at)}, waiting for their answer.`);
   };
-  const card = (id, why, sec) => leadCard(id, why, "", sec, todoFor(id) ? "hastodo" : "");
+  const card = (id, why, sec) => leadCard(id, why, "", sec, [todoFor(id) ? "hastodo" : "", lpicked.has(id) ? "picked" : ""].join(" "));
   $("leadsub").textContent = `${plural(open.length, "open place")}${dealsL.length ? ` · ${dealsL.length} in a deal` : ""}`;
   $("leads").innerHTML =
     group("Coming up", "", ag.map((i) => {
@@ -1012,9 +1021,73 @@ function leadTap(e){
   const g = e.target.closest("[data-goto]"); if (g) return showTab(g.dataset.goto);
   const c = e.target.closest("[data-id]"); if (!c) return;
   if (e.type === "keydown" && e.key !== "Enter") return;
+  if (lselecting && c.classList.contains("lead")){
+    const id = c.dataset.id;
+    lpicked.has(id) ? lpicked.delete(id) : lpicked.add(id);
+    c.classList.toggle("picked", lpicked.has(id));
+    return lSync();
+  }
   openListing(Number(c.dataset.id), c.dataset.sec);
 }
 $("leads").addEventListener("click", leadTap); $("leads").addEventListener("keydown", leadTap);
+
+// ---- Selecting several places (Asa, 27 Oct 2026): replies and follow-ups for many at once. Only drafts; nothing is sent ----
+const lpicked = new Set();
+let lselecting = false;
+const canReply = (id) => needsReply(id) && !draftOf(id);
+const canFollow = (id) => !isClosed(id) && threads[id]?.last_dir === "out" && !draftOf(id);
+const quietFor = (id) => (Date.now() - (Date.parse(threads[id]?.last_at || 0) || 0)) / 86400000;
+function lSetSelect(on){
+  lselecting = on; document.body.classList.toggle("selecting", on);
+  $("lselbar").hidden = !on; $("lselbtn").textContent = on ? "Done" : "Select several";
+  if (!on) lpicked.clear();
+  renderLeads(); lSync();
+}
+$("lselbtn").onclick = () => lSetSelect(!lselecting);
+$("lselcancel").onclick = () => lSetSelect(false);
+function lSync(){
+  if (!lselecting) return;
+  const ids = [...lpicked], rep = ids.filter(canReply), fol = ids.filter(canFollow), n = ids.length, skip = n - rep.length - fol.length;
+  const open = leadIds().filter((id) => !isClosed(id));
+  const allRep = open.filter((id) => canReply(id) && !lpicked.has(id)), quiet = open.filter((id) => canFollow(id) && quietFor(id) >= 3 && !lpicked.has(id));
+  const quick = [allRep.length ? `<button class="linkbtn" type="button" data-lq="rep">select ${plural(allRep.length, "place")} that wrote to you</button>` : "",
+    quiet.length ? `<button class="linkbtn" type="button" data-lq="quiet">select ${plural(quiet.length, "place")} quiet for 3+ days</button>` : ""].filter(Boolean).join(" · ");
+  $("lselcount").textContent = n ? `${plural(n, "place")} selected` : "Tap places to select them";
+  $("lselhint").innerHTML = (n ? `${skip ? `${skip} skipped (a message is already waiting in To do, or no messages yet). ` : ""}Nothing is sent. ` : "")
+    + (quick ? (n ? "Add: " : "Or ") + quick : n ? "" : "Nothing needs a reply or a follow-up right now.");
+  $("lselreply").textContent = rep.length ? `Write ${plural(rep.length, "reply", "replies")}` : "Write replies";
+  $("lselreply").disabled = !rep.length;
+  $("lselfollow").textContent = fol.length ? `Write ${plural(fol.length, "follow-up")}` : "Write follow-ups";
+  $("lselfollow").disabled = !fol.length;
+}
+$("lselhint").addEventListener("click", (e) => {
+  const q = e.target.dataset?.lq; if (!q) return;
+  for (const id of leadIds().filter((id) => !isClosed(id))) if (q === "rep" ? canReply(id) : canFollow(id) && quietFor(id) >= 3) lpicked.add(id);
+  renderLeads(); lSync();
+});
+$("lselreply").onclick = () => writeReplies([...lpicked].filter(canReply), false);
+$("lselfollow").onclick = () => writeReplies([...lpicked].filter(canFollow), true);
+async function writeReplies(ids, follow){
+  const what = (n) => plural(n, follow ? "follow-up" : "reply", follow ? "follow-ups" : "replies");
+  const ok = await confirmBox({ title: `Write ${what(ids.length)}?`, ok: "Write them",
+    body: `<p>${follow ? "Claude writes a short, friendly nudge for each place that hasn't answered you yet." : "Claude reads each conversation and writes a reply in your style."} About ${euro(ids.length * 0.001)} in total, roughly ${Math.max(10, Math.ceil(ids.length / 3) * 10)} seconds. <b>Nothing is sent.</b> They land in To do, where you check them and send them (one by one or with Send all).</p>` });
+  if (!ok) return;
+  let i = 0, done = 0, bad = 0, asks = 0, cost = 0, lastErr = "";
+  toast(`Writing ${what(ids.length)}…`);
+  const worker = async () => {
+    while (i < ids.length){
+      const id = ids[i++];
+      try {
+        const r = await post("replydraft", { id: Number(id), save: true, followup: follow });
+        if (!r.skipped){ done++; cost += r.cost_usd || 0; if (r.questions?.length) asks++; }
+      } catch (e) { bad++; lastErr = e.message; }
+      toast(`Writing ${what(ids.length)}: ${done + bad} done…`);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  await Promise.all([loadDrafts(), loadQuestions()]); lSetSelect(false); renderAll();
+  toast(`${what(done)} ready in To do${asks ? ` (${asks} need an answer from you first)` : ""}${bad ? `, ${bad} failed (${aiErr(lastErr)})` : ""} · cost ${euro(cost)}`, done ? { label: "Open To do", fn: () => showTab("inbox") } : null, !!bad && !done);
+}
 
 // =====================================================================================
 // TO DO (tab "inbox"): everything waiting on Asa, in the order to do it
