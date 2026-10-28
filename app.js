@@ -824,7 +824,7 @@ function questionCard(q){
   </div>`;
   return `<div class="qcard" data-qid="${q.id}">
     <b>${esc(q.text)}</b>
-    <div class="why">${places.length ? `Needed for ${plural(places.length, "message")}: ${places.map((p) => esc(p.street || "a place")).join(", ")}` : q.request_id ? "Claude asked this about something you told it." : ""}</div>
+    <div class="why">${places.length ? `Needed for ${plural(places.length, "message")}: ${places.map((p) => esc(p.street || "a place")).join(", ")}` : q.request_id ? "Claude asked this about something you told it." : String(q.key).startsWith("decide_") ? "A decision only you can make." : ""}</div>
     ${opts.length || q.last_answer ? `<div class="opts">${opts.map((o) => btn(o)).join("")}${q.last_answer ? btn(q.last_answer, `Same as before: ${q.last_answer}`) : ""}</div>` : ""}
     ${q.kind === "yesno" ? "" : `<div class="row"><input class="qin"${q.kind === "date" ? ' type="date"' : ""} placeholder="${per ? "Same answer for all" : "Your answer"}" aria-label="Your answer"><button class="btn small qsave" type="button">Save</button></div>`}
     ${per ? `<details><summary>Different for some places</summary>${places.map((p) => `<label class="qpl"><span>${esc(p.street || "a place")}</span><input class="qpp" data-lid="${p.listing_id}" placeholder="Answer for this place"></label>`).join("")}<button class="btn small qsavepp" type="button">Save these</button></details>` : ""}
@@ -1120,7 +1120,7 @@ async function renderInbox(){
     return `<article class="lead${d.send_status === "failed" ? " move" : ""}${wq.length ? " waitq" : ""}" data-id="${d.listing_id}" data-sec="draft" tabindex="0" role="button">${thumb(r)}
       <div class="cardtop"><span class="street">${esc(r.street || "A listing")}</span></div>
       <div class="badges"><span class="badge stage">${esc(st)}</span><span class="badge">${esc(r.city || "")}</span></div>
-      <div class="why">${esc(d.draft.slice(0, 140))}${d.draft.length > 140 ? "…" : ""}</div></article>`;
+      <div class="why">${d.draft_en ? "In English: " : ""}${esc((d.draft_en || d.draft).slice(0, 140))}${(d.draft_en || d.draft).length > 140 ? "…" : ""}</div></article>`;
   };
   const vcard = (id) => { const r = cache[id] || {}; return `<div class="qcard vcard" data-vid="${id}"><b>How was the viewing at ${esc(r.street || "this place")}?</b><div class="why">${stOf(id).viewing_at ? "You viewed it " + esc(dayTxt(stOf(id).viewing_at)) + "." : ""} <a href="#l=${id}">Open the place</a></div><div class="opts">${OPINIONS.map(([k, l]) => `<button class="btn ghost small" type="button" data-verdict="${k}">${esc(l)}</button>`).join("")}</div></div>`; };
   const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : i.source === "email" ? `Email from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
@@ -1471,6 +1471,7 @@ function draftSection(id){
     <div class="draft" data-aid="${d.id}">
       ${questionsFor(d.id).length && !sending ? `<div class="decide"><b>Open ${questionsFor(d.id).length > 1 ? "questions" : "question"}</b><p class="why">Answer once: it's saved and used in every message that needs it.</p>${questionsFor(d.id).map(questionCard).join("")}</div>` : ""}
       <textarea id="dText" aria-label="Message" ${sending ? "disabled" : ""}>${esc(draftEdits[d.id] ?? d.draft)}</textarea><span class="saved" id="dSaved"></span>
+      ${d.draft_en ? `<details class="english" open><summary>In English (only for you, not sent)</summary><p class="why" style="white-space:pre-wrap">${esc(d.draft_en)}</p></details>` : ""}
       ${send}
       ${sending ? "" : `<div class="btnrow"><button class="btn ghost" type="button" data-d="done" data-ch="${ch}">I sent it</button><button class="btn ghost danger" type="button" data-d="del">Delete</button></div>
       <details data-k="redo"><summary>Change it with AI</summary><div class="fix" style="margin-top:6px"><input id="dNote" placeholder="e.g. shorter, say I can come Saturday, don't mention who comes along">
@@ -1489,10 +1490,12 @@ $("lpBody").addEventListener("input", (e) => {
   }, 700);
 });
 async function saveDraftNow(aid){
-  const t = $("dText"); if (!t) return;
+  const t = $("dText"), box = t?.closest(".draft"); // only the open place page's own draft, never another place's text
+  const text = t && Number(box?.dataset.aid) === aid ? t.value : draftEdits[aid];
+  if (text == null) return;
   clearTimeout(saveTimers[aid]);
-  await post("apply", { action: "save", application_id: aid, draft: t.value });
-  const d = drafts.find((x) => x.id === aid); if (d) d.draft = t.value; delete draftEdits[aid];
+  await post("apply", { action: "save", application_id: aid, draft: text });
+  const d = drafts.find((x) => x.id === aid); if (d) d.draft = text; delete draftEdits[aid];
 }
 
 // ---- conversation ----
