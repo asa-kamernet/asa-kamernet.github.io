@@ -2,12 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- Security policy (audit M4, 29 Oct 2026): scripts only from this site, cdnjs (with integrity hashes) and the one inline script below (by hash);
+     data only to Supabase, PDOK (place search) and cdnjs (the PDF worker, hash-checked). Change the hash if that inline script changes. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'sha256-ozy0IB51w1sQI+Wx9QpmZi6vAKCUMLzzd7o9zR0nt7E='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; connect-src 'self' https://sldfjyrpopypzbmhvbkq.supabase.co https://api.pdok.nl https://cdnjs.cloudflare.com; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b62c4">
 <title>Kamernet Live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=20">
+<link rel="stylesheet" href="app.css?v=21">
 </head>
 <body>
 <!-- Layout: four tabs (Find, To do, Places, More) with a bottom tab bar, a floating Tell Claude button,
@@ -201,8 +204,8 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button class="linkbtn" id="toastUndo" type="button" hidden>Undo</button></div>
 
 <dialog id="calDlg" class="caldlg" aria-label="Pick a date"></dialog>
-<script src="app.js?v=20" onerror="window.__failed=1"></script>
-<script>// if the app's code didn't load (bad connection), say so instead of showing a blank page
-if (window.__failed || typeof showTab !== "function"){ document.body.innerHTML = '<div style="padding:40px 20px;font:16px system-ui;text-align:center">Kamernet Live did not load properly.<br><br><button onclick="location.reload()" style="font:inherit;padding:10px 18px;border-radius:10px">Try again</button></div>'; }</script>
+<script src="app.js?v=21"></script>
+<script>// if the app's code didn't load (bad connection), say so instead of showing a blank page (no inline handlers: the CSP allows only this script, by its hash)
+if (typeof showTab !== "function"){ document.body.innerHTML = '<div style="padding:40px 20px;font:16px system-ui;text-align:center">Kamernet Live did not load properly.<br><br><button id="reloadBtn" type="button" style="font:inherit;padding:10px 18px;border-radius:10px">Try again</button></div>'; document.getElementById("reloadBtn").addEventListener("click", () => location.reload()); }</script>
 </body>
 </html>

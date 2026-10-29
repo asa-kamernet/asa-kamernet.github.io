@@ -576,13 +576,24 @@ let mapLib = null, map = null, pins = null, area = null, mapKey = "", fitting = 
 const MAPSEL = "id,price,people,per_person,street,city,kind,size_m2,photos,lat:facts->>lat,lng:facts->>lng";
 const NL = [52.15, 5.3];
 function cdn(tag, attrs){ return new Promise((ok, bad) => { const e = document.createElement(tag); Object.assign(e, attrs); e.onload = ok; e.onerror = () => bad(new Error("the map didn't load")); document.head.appendChild(e); }); }
+// integrity = cdnjs's own SHA-512 of each file (checked 29 Oct 2026): a changed file on the CDN is refused, never run
+const SRI = {
+  "leaflet/1.9.4/leaflet.css": "sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w==",
+  "leaflet.markercluster/1.5.3/MarkerCluster.css": "sha512-mQ77VzAakzdpWdgfL/lM1ksNy89uFgibRQANsNneSTMD/bj0Y/8+94XMwYhnbzx8eki2hrbPpDm0vD0CiT2lcg==",
+  "leaflet/1.9.4/leaflet.js": "sha512-BwHfrr4c9kmRkLw6iXFdzcdWV/PGkVgiIyIWLLlTSXzWQzxuSg4DiQUCpauz/EWjgk5TYQqX/kvn9pG1NpYfqg==",
+  "leaflet.markercluster/1.5.3/leaflet.markercluster.js": "sha512-OFs3W4DIZ5ZkrDhBFtsCP6JXtMEDGmhl0QPlmWYBJay40TT1n3gt2Xuw8Pf/iezgW9CdabjkNChRqozl/YADmg==",
+  "pdf.js/3.11.174/pdf.min.js": "sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==",
+  "pdf.js/3.11.174/pdf.worker.min.js": "sha512-BbrZ76UNZq5BhH7LL7pn9A4TKQpQeNCHOo65/akfelcIBbcVvYWOFQKPXIrykE3qZxYjmDX573oa4Ywsc7rpTw==",
+};
+const CDNJS = "https://cdnjs.cloudflare.com/ajax/libs/";
+const cdnAttrs = (path, attrs) => ({ ...attrs, integrity: SRI[path], crossOrigin: "anonymous" });
 function ensureLeaflet(){
-  const C = "https://cdnjs.cloudflare.com/ajax/libs/";
+  const C = CDNJS, css = (p) => cdnAttrs(p, { rel: "stylesheet", href: C + p }), js = (p) => cdnAttrs(p, { src: C + p });
   return mapLib ||= (async () => {
-    cdn("link", { rel: "stylesheet", href: C + "leaflet/1.9.4/leaflet.css" }).catch(() => {});
-    cdn("link", { rel: "stylesheet", href: C + "leaflet.markercluster/1.5.3/MarkerCluster.css" }).catch(() => {});
-    await cdn("script", { src: C + "leaflet/1.9.4/leaflet.js" });
-    await cdn("script", { src: C + "leaflet.markercluster/1.5.3/leaflet.markercluster.js" });
+    cdn("link", css("leaflet/1.9.4/leaflet.css")).catch(() => {});
+    cdn("link", css("leaflet.markercluster/1.5.3/MarkerCluster.css")).catch(() => {});
+    await cdn("script", js("leaflet/1.9.4/leaflet.js"));
+    await cdn("script", js("leaflet.markercluster/1.5.3/leaflet.markercluster.js"));
   })().catch((e) => { mapLib = null; throw e; });
 }
 const isDark = () => document.documentElement.dataset.theme === "dark" || (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -842,6 +853,7 @@ async function questionClick(e){
   const card = e.target.closest(".qcard"); if (!card) return false;
   const b = e.target.closest("button"); if (!b) return true;
   const q = questions.find((x) => x.id === Number(card.dataset.qid)); if (!q) return true;
+  const closeQ = /^decide_close_\d+$/.test(String(q.key));
   let body;
   if (b.classList.contains("qopt")) body = { answer: b.dataset.v };
   else if (b.classList.contains("qppl")){
@@ -861,14 +873,21 @@ async function questionClick(e){
     if (!Object.keys(per).length && !all){ toast("Write an answer for at least one place.", null, true); return true; }
     body = { per_place: per, ...(all ? { answer: all } : {}) };
   } else if (b.classList.contains("qno")){
-    if (!await confirmBox({ title: "Leave this out?", ok: "Leave it out", body: "<p>Claude rewrites the waiting messages without it and won't ask again.</p>" })) return true;
-    body = null;
+    if (closeQ) body = { answer: "No" };
+    else if (!await confirmBox({ title: "Leave this out?", ok: "Leave it out", body: "<p>Claude rewrites the waiting messages without it and won't ask again.</p>" })) return true;
+    else body = null;
   } else if (b.classList.contains("pchip") || b.classList.contains("pnew")) return true;
   else return true;
   const st = card.querySelector(".qst"), n = (q.places || []).length;
   card.querySelectorAll("button,input").forEach((x) => { x.disabled = true; });
   st.textContent = n ? `Saving and rewriting ${plural(n, "message")}… (about ${Math.max(10, Math.ceil(n / 3) * 10)} seconds)` : "Saving…";
   try {
+    if (closeQ){ // "Looks like a no from X. Close it?" (made when a landlord message reads as a no; nothing closes by itself)
+      const r = await post("status", { action: "decide_close", question_id: q.id, answer: body?.answer || "No" });
+      await Promise.all([loadQuestions(), refreshAll()]); renderAll(); if (lpId) lpRender();
+      toast(r.closed ? "Closed as “They said no”. It's in the Archive (Bring back undoes it)." : "Kept open.");
+      return true;
+    }
     const r = await post("replydraft", body ? { action: "answer_question", id: q.id, ...body } : { action: "dismiss_question", id: q.id });
     if (q.request_id && body) await post("me", { action: "request", text: `Answer to your question “${q.text}”: ${pplNames(body.answer) || Object.values(body.per_place).map(pplNames).join("; ")}` });
     await Promise.all([loadQuestions(), loadDrafts()]); renderAll(); if (lpId) lpRender();
@@ -2129,12 +2148,19 @@ async function dealCall(id, body){
   return r;
 }
 async function readFile64(f){ return await new Promise((ok, bad) => { const rd = new FileReader(); rd.onload = () => ok(String(rd.result).split(",")[1] || ""); rd.onerror = () => bad(new Error("couldn't read the file")); rd.readAsDataURL(f); }); }
+// the PDF reader (text only). Its worker is fetched, checked against its hash and run from a blob, so it can't be swapped either;
+// isEvalSupported:false shuts the code path of the pdf.js 3.x font bug (CVE-2024-4367), which text reading doesn't need anyway
+async function sri512(buf){ const b = new Uint8Array(await crypto.subtle.digest("SHA-512", buf)); let s = ""; for (const x of b) s += String.fromCharCode(x); return "sha512-" + btoa(s); }
 async function pdfText(src){
   if (!window.pdfjsLib){
-    await new Promise((ok, bad) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; s.onload = ok; s.onerror = () => bad(new Error("couldn't load the PDF reader")); document.head.appendChild(s); });
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const lib = "pdf.js/3.11.174/pdf.min.js", wk = "pdf.js/3.11.174/pdf.worker.min.js";
+    await cdn("script", cdnAttrs(lib, { src: CDNJS + lib })).catch(() => { throw new Error("couldn't load the PDF reader"); });
+    const buf = await (await fetch(CDNJS + wk)).arrayBuffer();
+    if (await sri512(buf) !== SRI[wk]) throw new Error("the PDF reader didn't pass its safety check");
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([buf], { type: "text/javascript" }));
   }
-  const doc = await window.pdfjsLib.getDocument(src).promise; let out = "";
+  const opts = typeof src === "string" ? { url: src } : { ...src };
+  const doc = await window.pdfjsLib.getDocument({ ...opts, isEvalSupported: false }).promise; let out = "";
   for (let i = 1; i <= Math.min(doc.numPages, 30); i++){ const tc = await (await doc.getPage(i)).getTextContent(); out += tc.items.map((x) => x.str).join(" ") + "\n"; }
   return out;
 }
@@ -2212,11 +2238,11 @@ async function dealChange(e){
 // TELL CLAUDE
 // =====================================================================================
 let askListing = null, askPoll = null, askPolls = 0;
-const RQ = { open: "Waiting for Claude", working: "Claude is on it…", done: "Done", needs_chat: "Needs a Claude chat (it's a change to this site)", needs_asa: "Claude has a question for you", declined: "Not done" };
+const RQ = { open: "Waiting for Claude", working: "Claude is on it…", done: "Done", needs_chat: "Needs a Claude chat (it's a change to this site)", needs_asa: "Claude has a question for you", declined: "Not done", failed: "Stopped: tap Try again if you still want it" };
 async function loadRequests(){
   try {
     const rs = (await fn("me?requests=1")).requests || [];
-    $("askList").innerHTML = rs.length ? `<h3 class="lbl">Your requests</h3>${rs.map((r) => `<div class="rq ${r.status}"><div><b>${esc(RQ[r.status] || r.status)}</b> · ${esc(ago(r.created_at))}${r.listing_id && cache[r.listing_id] ? " · " + esc(cache[r.listing_id].street) : ""}${r.status === "open" && askPolls >= 40 ? ` <button class="btn ghost small asknow" type="button" data-id="${r.id}">Try again</button>` : ""}</div><div>${esc(r.text)}</div>${r.reply ? `<div class="rr">Claude: ${esc(r.reply)}</div>` : ""}</div>`).join("")}` : "";
+    $("askList").innerHTML = rs.length ? `<h3 class="lbl">Your requests</h3>${rs.map((r) => `<div class="rq ${r.status}"><div><b>${esc(RQ[r.status] || r.status)}</b> · ${esc(ago(r.created_at))}${r.listing_id && cache[r.listing_id] ? " · " + esc(cache[r.listing_id].street) : ""}${r.status === "failed" || (r.status === "open" && askPolls >= 40) ? ` <button class="btn ghost small asknow" type="button" data-id="${r.id}">Try again</button>` : ""}</div><div>${esc(r.text)}</div>${r.reply ? `<div class="rr">Claude: ${esc(r.reply)}</div>` : ""}</div>`).join("")}` : "";
     return rs;
   } catch (e) { $("askList").textContent = "Couldn't load your requests: " + e.message; return []; }
 }
