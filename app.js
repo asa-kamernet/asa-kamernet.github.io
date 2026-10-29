@@ -198,7 +198,7 @@ function showTab(tab){
   if (tab !== "leads" && lselecting) lSetSelect(false);
   if (tab === "leads") renderLeads();
   if (tab === "inbox") renderInbox();
-  if (tab === "more"){ drawHealth(); drawSites(); loadSites(); loadFacts(); loadPeople().then(drawPeople); }
+  if (tab === "more"){ loadAutopilot(); drawHealth(); drawSites(); loadSites(); loadFacts(); loadPeople().then(drawPeople); }
   if (tab === "find" && S.view === "map" && map) setTimeout(() => map.invalidateSize(), 0);
   window.scrollTo(0, 0);
 }
@@ -212,40 +212,42 @@ function renderBadges(){
 // =====================================================================================
 // FIND
 // =====================================================================================
-function filters(){
+// F = a filter board (Find's own S, or a saved search's); forSearch = only the filters themselves (a saved search: the server adds
+// dup_of/gone_at and never uses who you're in touch with)
+function filters(F = S, forSearch = false){
   // reposts of an older live ad are hidden (dup_of). Ads taken off Kamernet are hidden too, unless you are still in contact.
-  const p = ["dup_of=is.null"];
+  const p = forSearch ? [] : ["dup_of=is.null"];
   const known = Object.keys(statuses), activeIds = known.filter((id) => !isClosed(id));
-  p.push(activeIds.length ? `or=(gone_at.is.null,id.in.(${activeIds.join(",")}))` : "gone_at=is.null");
+  if (!forSearch) p.push(activeIds.length ? `or=(gone_at.is.null,id.in.(${activeIds.join(",")}))` : "gone_at=is.null");
   const ins = (m) => Object.keys(m).filter((k) => m[k] === "in");
   const quote = (c) => `"${c}"`, regCol = { ok: "yes", not: "no", unknown: "unknown" };
-  if (S.loc?.city && !nearOn()) p.push(`city=in.(${quote(S.loc.city)})`); // "Only this city" (or a city whose middle point isn't known yet); a distance goes through base()
-  if (ins(S.kindF).length) p.push(`kind=in.(${ins(S.kindF).join(",")})`);
-  if (ins(S.srcF).length) p.push(`source=in.(${ins(S.srcF).join(",")})`);
-  if (ins(S.regF).length) p.push(`reg=in.(${ins(S.regF).map((k) => regCol[k]).join(",")})`);
+  if (F.loc?.city && !nearOn(F)) p.push(`city=in.(${quote(F.loc.city)})`); // "Only this city" (or a city whose middle point isn't known yet); a distance goes through base()
+  if (ins(F.kindF).length) p.push(`kind=in.(${ins(F.kindF).join(",")})`);
+  if (ins(F.srcF).length) p.push(`source=in.(${ins(F.srcF).join(",")})`);
+  if (ins(F.regF).length) p.push(`reg=in.(${ins(F.regF).map((k) => regCol[k]).join(",")})`);
   const ands = [];
   // 2 or 3 people sharing: hide places that allow fewer people ("Up to 4" and "Just me" hide nothing; unknown stays)
-  if (S.ppl > 1 && S.ppl < 4) ands.push(`or(people.is.null,people.gte.${S.ppl})`);
-  if (S.max < 2500){
+  if (F.ppl > 1 && F.ppl < 4) ands.push(`or(people.is.null,people.gte.${F.ppl})`);
+  if (F.max < 2500){
     // price / min(people sharing, people allowed) <= max, written out for each number of people allowed.
     // Unknown number of people counts as 1, so its whole price must fit.
-    const alts = [`and(people.is.null,price_allin.lte.${S.max})`, `and(people.lte.1,price_allin.lte.${S.max})`];
-    for (let k = 2; k < S.ppl; k++) alts.push(`and(people.eq.${k},price_allin.lte.${S.max * k})`);
-    alts.push(`and(people.gte.${Math.max(2, S.ppl)},price_allin.lte.${S.max * S.ppl})`);
+    const alts = [`and(people.is.null,price_allin.lte.${F.max})`, `and(people.lte.1,price_allin.lte.${F.max})`];
+    for (let k = 2; k < F.ppl; k++) alts.push(`and(people.eq.${k},price_allin.lte.${F.max * k})`);
+    alts.push(`and(people.gte.${Math.max(2, F.ppl)},price_allin.lte.${F.max * F.ppl})`);
     ands.push(`or(${alts.join(",")})`);
   }
-  if (S.cheap !== "show") ands.push("or(per_person.gte.250,per_person.is.null)"); // prices under €250 are almost always typos
-  if (S.depMax > 0){ if (S.depKnown) p.push(`deposit=lte.${S.depMax}`); else ands.push(`or(deposit.is.null,deposit.lte.${S.depMax})`); }
-  else if (S.depKnown) p.push("deposit=not.is.null");
-  if (S.depLegal) p.push("all_tags=not.cs.{high-deposit}"); // the reader marks deposits above about 2 months' rent
-  const q = S.q.trim().replace(/[(),*"]/g, " ").trim();
+  if (F.cheap !== "show") ands.push("or(per_person.gte.250,per_person.is.null)"); // prices under €250 are almost always typos
+  if (F.depMax > 0){ if (F.depKnown) p.push(`deposit=lte.${F.depMax}`); else ands.push(`or(deposit.is.null,deposit.lte.${F.depMax})`); }
+  else if (F.depKnown) p.push("deposit=not.is.null");
+  if (F.depLegal) p.push("all_tags=not.cs.{high-deposit}"); // the reader marks deposits above about 2 months' rent
+  const q = F.q.trim().replace(/[(),*"]/g, " ").trim();
   if (q) ands.push(`or(street.ilike.*${q}*,city.ilike.*${q}*)`);
-  if (S.dist === "yes") p.push("distilled_at=not.is.null");
-  if (S.dist === "no") p.push("distilled_at=is.null");
-  const inc = Object.keys(S.tags).filter((t) => S.tags[t] === "in"), out = Object.keys(S.tags).filter((t) => S.tags[t] === "out");
+  if (F.dist === "yes") p.push("distilled_at=not.is.null");
+  if (F.dist === "no") p.push("distilled_at=is.null");
+  const inc = Object.keys(F.tags).filter((t) => F.tags[t] === "in"), out = Object.keys(F.tags).filter((t) => F.tags[t] === "out");
   if (inc.length) p.push(`all_tags=cs.{${inc.join(",")}}`);
   for (const t of out) p.push(`all_tags=not.cs.{${t}}`);
-  const hide = known.filter((id) => isClosed(id) || (S.hideContacted && stageOf(id) !== "none")); // closed ones live in Places
+  const hide = forSearch ? [] : known.filter((id) => isClosed(id) || (F.hideContacted && stageOf(id) !== "none")); // closed ones live in Places
   if (hide.length) p.push(`id=not.in.(${hide.join(",")})`);
   if (ands.length) p.push(`and=(${ands.join(",")})`);
   return p;
@@ -253,9 +255,9 @@ function filters(){
 const SELECT = "id,url,kind,city,street,title,price,people,per_person,size_m2,utilities_incl,deposit,available_from,available_until,tags,distill_tags,reg,distilled_at,distill_model,distilled,photos,first_seen_at,gone_at,source,posted:raw->>publishDate,pc:facts->>postcode,lat:facts->>lat,lng:facts->>lng,form_bills:facts->form_bills,check_reasons,dup_of,dup_ignore";
 const qs = (extra) => [...filters(), `order=${orderBy()}`, ...extra].join("&");
 // with a Location and a distance, only listings within that many km (a city + distance = the whole city plus that far around it)
-const nearOn = () => S.loc && S.loc.km > 0 && S.loc.lat != null;
-const areaKm = () => S.loc.city ? (S.loc.r || 0) + S.loc.km : S.loc.km;
-const base = () => nearOn() ? `rpc/listings_near?clat=${S.loc.lat}&clng=${S.loc.lng}&km=${areaKm()}${S.loc.city ? "&ccity=" + encodeURIComponent(S.loc.city) : ""}&` : "listings?";
+const nearOn = (F = S) => !!F.loc && F.loc.km > 0 && F.loc.lat != null;
+const areaKm = (F = S) => F.loc.city ? (F.loc.r || 0) + F.loc.km : F.loc.km;
+const base = (F = S) => nearOn(F) ? `rpc/listings_near?clat=${F.loc.lat}&clng=${F.loc.lng}&km=${areaKm(F)}${F.loc.city ? "&ccity=" + encodeURIComponent(F.loc.city) : ""}&` : "listings?";
 const locLabel = () => S.loc.city ? S.loc.name + " centre" : S.loc.name === "Near me" ? "you" : S.loc.name === "Map area" ? "the map centre" : S.loc.name.split(",")[0];
 function kmBetween(a, b, c, d){
   const r = Math.PI / 180, x = Math.sin((c - a) * r / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin((d - b) * r / 2) ** 2;
@@ -1505,13 +1507,14 @@ function sendAllPlan(ds){
   }
   return { go, skip };
 }
-async function sendAll(){
-  const { go, skip } = sendAllPlan(unsent().filter((d) => !isClosed(String(d.listing_id))));
+// only = a set of listing ids (a saved search's "Message all of these"); confirmed = that already asked "Are you sure?"
+async function sendAll(only = null, confirmed = false){
+  const { go, skip } = sendAllPlan(unsent().filter((d) => !isClosed(String(d.listing_id)) && (!only || only.has(String(d.listing_id)))));
   if (!go.length) return toast("Nothing here can be sent: add the landlord's email or phone first.");
   const nm = (n) => plural(go.filter(([, ch]) => ch === n).length, "message");
   const pc = go.some(([, ch]) => ch !== "email"), fills = go.filter(([, , t]) => /\[YOUR ANSWER/i.test(t)).length;
   const parts = [["email", "by email"], ["kamernet", "on Kamernet"], ["whatsapp", "on WhatsApp"], ["site", "through the ad's own site"]].filter(([k]) => go.some(([, ch]) => ch === k)).map(([k, w]) => `${nm(k)} ${w}`);
-  if (!await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${parts.join(", ")}. Email goes from your Gmail within a minute; the rest from Chrome on your PC, one every 20-40 seconds${pc && !knOnline() ? " (<b>your PC seems off</b>, so they go out once it's on)" : ""}.</p>${fills ? `<p>${plural(fills, "message")} still had [YOUR ANSWER …] parts: Claude fills them in from your facts first, or writes around what it doesn't know.</p>` : ""}${skip.length ? `<p class="why">Not sent: ${skip.map(([d, why]) => `${esc(cache[d.listing_id]?.street || "a listing")} (${esc(why)})`).join(", ")}.</p>` : ""}` })) return;
+  if (!confirmed && !await confirmBox({ title: `Send all ${go.length}?`, ok: "Send them all", body: `<p>${parts.join(", ")}. Email goes from your Gmail within a minute; the rest from Chrome on your PC, one every 20-40 seconds${pc && !knOnline() ? " (<b>your PC seems off</b>, so they go out once it's on)" : ""}.</p>${fills ? `<p>${plural(fills, "message")} still had [YOUR ANSWER …] parts: Claude fills them in from your facts first, or writes around what it doesn't know.</p>` : ""}${skip.length ? `<p class="why">Not sent: ${skip.map(([d, why]) => `${esc(cache[d.listing_id]?.street || "a listing")} (${esc(why)})`).join(", ")}.</p>` : ""}` })) return;
   let ok = 0; const bad = [];
   toast(`Sending ${plural(go.length, "message")}…`);
   for (let [d, ch, text] of go){
@@ -2488,9 +2491,10 @@ async function refreshAll(quiet = false){
 }
 // new info shows up by itself: every 30 s while the site is open on screen
 setInterval(() => { if (document.visibilityState === "visible" && pass && !$("app").hidden) refreshAll(true).catch(() => {}); }, 30000);
+function openAutopilot(){ showTab("more"); history.replaceState(null, "", location.pathname + location.search); setTimeout(() => $("apPanel").scrollIntoView({ behavior: "smooth" }), 50); }
 const hashId = () => (location.hash.match(/l=(\d+)/) || [])[1] || null;
 const openSites = () => { showTab("more"); setTimeout(() => $("sitesPanel").scrollIntoView({ behavior: "smooth" }), 50); history.replaceState(null, "", location.pathname + location.search); };
-window.addEventListener("hashchange", () => { if (pass && location.hash === "#todo"){ showTab("inbox"); history.replaceState(null, "", location.pathname + location.search); } else if (pass && location.hash === "#sites") openSites(); else if (pass && hashId() && hashId() !== lpId) openListing(hashId()); });
+window.addEventListener("hashchange", () => { if (pass && location.hash === "#todo"){ showTab("inbox"); history.replaceState(null, "", location.pathname + location.search); } else if (pass && location.hash === "#sites") openSites(); else if (pass && location.hash === "#autopilot") openAutopilot(); else if (pass && /^#s=d+/.test(location.hash)) openSearch(Number(location.hash.slice(3))); else if (pass && hashId() && hashId() !== lpId) openListing(hashId()); });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && pass && !$("app").hidden) refreshAll(); });
 // One date pop-up for every date field (Asa, 28 Oct 2026): always 6 weeks, opens at the chosen date, or at the ad's
 // available-from date for a start or move-in day. For a viewing time it shows in green when you're free (More > Free times).
@@ -2586,6 +2590,181 @@ $("freeGrid").onclick = async (e) => {
   try { await fn("me", { method: "POST", body: JSON.stringify({ action: "free_save", grid: g }) }); } catch (err){ fail(err); }
 };
 
+// =====================================================================================
+// SAVED SEARCHES (Find; Asa, 29 Oct 2026): the same filter board, saved with a name and a mode.
+// Notify me = a push for every new match. Message them for me = Claude writes the first message and sends it like Send for me
+// (never twice, never to a place flagged odd, only while Autopilot is on). The server matches new listings every 5 minutes.
+// =====================================================================================
+const FILTER_KEYS = ["kindF", "regF", "srcF", "max", "q", "dist", "cheap", "depMax", "depLegal", "depKnown", "tags", "ppl", "loc"];
+const MAX_BULK = 30;
+let searches = [], editingSearch = null, spId = null, spRows = [], apOn = null;
+const boardOf = (F) => JSON.parse(JSON.stringify(Object.fromEntries(FILTER_KEYS.map((k) => [k, F[k] ?? null]))));
+const asBoard = (st) => ({ ...boardOf(S), kindF: {}, regF: {}, srcF: {}, tags: {}, max: 2500, q: "", dist: "any", cheap: "hide", depMax: 0, depLegal: false, depKnown: false, ppl: 4, loc: null, ...(st || {}) });
+const specOf = (F) => ({ path: base(F).replace(/[?&]$/, ""), query: filters(F, true).join("&") });
+async function loadSearches(){ try { const r = await fn("searches?list=1"); searches = r.searches || []; apOn = r.autopilot_on; } catch { searches = []; } drawSearchRow(); }
+const modeTxt = (m) => m === "message" ? "Messages them for me" : "Notifies me";
+function drawSearchRow(){
+  const row = $("ssrow");
+  row.hidden = !searches.length;
+  row.innerHTML = searches.length ? `<span>Saved searches:</span>${searches.map((x) => `<button class="sschip${x.paused ? " off" : ""}" type="button" data-sp="${x.id}"><span aria-hidden="true">${x.mode === "message" ? "✉" : "🔔"}</span>${esc(x.name)}${x.paused ? " · paused" : ""}</button>`).join("")}` : "";
+}
+$("ssrow").onclick = (e) => { const b = e.target.closest("[data-sp]"); if (b) openSearch(Number(b.dataset.sp)); };
+// what a saved search filters on, as the same chips Find shows (Location first)
+function boardChips(st){
+  const keep = boardOf(S); Object.assign(S, asBoard(st));
+  const f = activeFilters().map((x) => x.t);
+  if (S.loc) f.unshift(S.loc.km > 0 && S.loc.lat != null ? `${S.loc.name.split(",")[0]} + ${S.loc.km} km` : S.loc.name.split(",")[0]);
+  Object.assign(S, keep);
+  return f.length ? f : ["Everything (no filters)"];
+}
+
+// the save sheet: name + mode (from the Filters sheet's "Save as a search", or "Save changes" while editing one)
+function saveSheet(x){
+  const mode = x?.mode || "notify";
+  $("ssBody").innerHTML = `
+    <label class="field">Name<input id="ssName" maxlength="60" value="${esc(x?.name || (S.loc ? S.loc.name.split(",")[0] : "My search"))}" placeholder="e.g. Rotterdam studios"></label>
+    <div class="fsec"><h3 class="lbl">When a new listing matches</h3>
+      <div class="modesw" role="group" aria-label="Mode"><button type="button" data-mode="notify" aria-pressed="${mode === "notify"}">🔔 Notify me</button><button type="button" data-mode="message" aria-pressed="${mode === "message"}">✉ Message them for me</button></div>
+      <p class="why" id="ssWhy"></p></div>
+    <p class="why">Filters: ${boardChips(boardOf(S)).map(esc).join(" · ")}</p>
+    <button class="btn big" id="ssSave" type="button">${x ? "Save changes" : "Save this search"}</button>`;
+  const why = () => { const m = $("ssBody").querySelector("[data-mode][aria-pressed=true]").dataset.mode;
+    $("ssWhy").innerHTML = m === "message" ? "Claude writes a first message from your facts and People and sends it straight away, like Send for me (your PC sends Kamernet and ad-site messages). <b>No daily cap</b> apart from the usual 100 a day per channel. Never twice to the same place, never to a place flagged odd (you get an alert instead), and only while Autopilot is on (More). A message that needs an answer only you have waits in To do."
+      : "You get a phone alert for every new listing that matches; tapping it opens the listing. Nothing is sent."; };
+  why();
+  $("ssBody").onclick = (e) => { const b = e.target.closest("[data-mode]"); if (b){ $("ssBody").querySelectorAll("[data-mode]").forEach((y) => y.setAttribute("aria-pressed", String(y === b))); why(); } };
+  $("ssSave").onclick = async () => {
+    const name = $("ssName").value.trim(); if (!name) return toast("Give it a name first.", null, true);
+    const m = $("ssBody").querySelector("[data-mode][aria-pressed=true]").dataset.mode;
+    if (m === "message" && (!x || x.mode !== "message") && !await confirmBox({ title: "Message every new match for you?", ok: "Yes, message them", body: "<p>Every new listing that passes these filters gets a first message from you, sent without asking. You can switch it back to Notify me, pause it, or stop Autopilot at any time.</p>" })) return;
+    try {
+      const r = await post("searches", { action: "save", id: x?.id, name, mode: m, state: boardOf(S), ...specOf(S) });
+      $("ssDlg").close(); editingSearch = null; drawFiltSave(); await loadSearches();
+      toast(x ? "Saved." : `Saved “${name}”. New matches ${m === "message" ? "get a message from you" : "send you an alert"}.`, { label: "Open it", fn: () => openSearch(r.search.id) });
+    } catch (err) { fail(err); }
+  };
+  $("ssDlg").showModal();
+}
+$("ssClose").onclick = () => $("ssDlg").close();
+function drawFiltSave(){ const x = searches.find((y) => y.id === editingSearch); $("filtSave").textContent = x ? `Save changes to “${x.name}”` : "Save as a search"; }
+$("filtSave").onclick = () => { $("filtDlg").close(); saveSheet(searches.find((y) => y.id === editingSearch) || null); };
+
+// one saved search: its matches (newest first), mode, edit, pause, delete, and "Message all of these"
+async function openSearch(id){
+  spId = id;
+  if (location.hash !== `#s=${id}`) history.replaceState(null, "", `#s=${id}`);
+  if (!searches.length) await loadSearches();
+  $("spDlg").open || $("spDlg").showModal();
+  await spRender(true);
+}
+const spCan = (r) => !isClosed(String(r.id)) && stageOf(String(r.id)) === "none" && !threads[r.id] && !(r.check_reasons || []).length && !isSending(draftOf(r.id));
+async function spRender(reload){
+  const x = searches.find((y) => y.id === spId);
+  if (!x){ $("spTitle").textContent = "Saved search"; $("spBody").innerHTML = '<p class="why">This search was deleted.</p>'; return; }
+  $("spTitle").textContent = x.name;
+  const F = asBoard(x.state);
+  if (reload){
+    $("spBody").innerHTML = '<p class="why">Loading…</p>';
+    try { spRows = await (await rest(`${base(F)}select=${SELECT}&${[...filters(F, true), "dup_of=is.null", "gone_at=is.null", "order=first_seen_at.desc", "limit=60"].join("&")}`)).json(); }
+    catch (e) { spRows = []; $("spBody").innerHTML = `<p class="why err">Couldn't load the matches: ${esc(e.message)}</p>`; return; }
+    for (const r of spRows) cache[r.id] = r;
+  }
+  const can = spRows.filter(spCan), st = x.stats || {};
+  const did = [st.messaged && `messaged ${st.messaged}`, st.waiting && `${st.waiting} waiting for you`, st.notified && `alerted ${st.notified}`, st.odd && `${st.odd} flagged odd (alert only)`].filter(Boolean).join(", ");
+  $("spBody").innerHTML = `<div class="sp">
+    <section class="panel">
+      <div class="modesw" role="group" aria-label="Mode"><button type="button" data-spm="notify" aria-pressed="${x.mode === "notify"}">🔔 Notify me</button><button type="button" data-spm="message" aria-pressed="${x.mode === "message"}">✉ Message them for me</button></div>
+      <p class="why">${x.paused ? "<b>Paused.</b> New listings aren't checked against it." : x.mode === "message" ? (apOn === false ? "<b>Autopilot is stopped</b> (More), so new matches only get an alert for now." : "New matches get a first message from you, sent straight away.") : "New matches send you an alert."}${did ? ` So far: ${did}.` : ""}</p>
+      <div class="fchips">${boardChips(x.state).map((t) => `<span class="badge">${esc(t)}</span>`).join("")}</div>
+      <div class="btnrow"><button class="btn ghost small" type="button" data-spa="edit">Edit filters</button><button class="btn ghost small" type="button" data-spa="pause">${x.paused ? "Resume" : "Pause"}</button><button class="btn ghost small danger" type="button" data-spa="delete">Delete</button></div>
+    </section>
+    <div class="btnrow"><button class="btn" type="button" data-spa="all" ${can.length ? "" : "disabled"}>Message all of these (${Math.min(can.length, MAX_BULK)})</button></div>
+    <p class="why">${spRows.length ? `${plural(spRows.length, "listing")} on the sites now match, newest first.${spRows.length > can.length ? ` ${spRows.length - can.length} left out of “Message all” (already in touch, closed, or flagged odd).` : ""}` : "Nothing on the sites matches right now."}</p>
+    <div class="list">${spRows.map(cardHtml).join("")}</div></div>`;
+}
+$("spBack").onclick = () => { $("spDlg").close(); };
+$("spDlg").addEventListener("close", () => { spId = null; if (/^#s=/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); });
+$("spBody").addEventListener("click", async (e) => {
+  const x = searches.find((y) => y.id === spId); if (!x) return;
+  const card = e.target.closest(".card");
+  if (card){ e.preventDefault(); return openListing(Number(card.dataset.id)); }
+  const m = e.target.closest("[data-spm]");
+  if (m && m.dataset.spm !== x.mode){
+    if (m.dataset.spm === "message" && !await confirmBox({ title: "Message every new match for you?", ok: "Yes, message them", body: "<p>Every new listing that passes these filters gets a first message from you, sent without asking (never twice, never to places flagged odd). Past listings aren't messaged: use “Message all of these” for those.</p>" })) return;
+    try { await post("searches", { action: "mode", id: x.id, mode: m.dataset.spm }); x.mode = m.dataset.spm; drawSearchRow(); spRender(); toast(modeTxt(x.mode) + " from now on."); } catch (err) { fail(err); }
+    return;
+  }
+  const a = e.target.closest("[data-spa]")?.dataset.spa; if (!a) return;
+  if (a === "edit"){ // the same filter board as Find: load it there, then "Save changes"
+    Object.assign(S, asBoard(x.state)); persist(); renderLoc(); renderActive(); load(true);
+    editingSearch = x.id; $("spDlg").close(); showTab("find");
+    renderFilters(); drawFiltSave(); $("filtDlg").showModal();
+    toast("Change the filters, then tap “Save changes” at the bottom.");
+  }
+  if (a === "pause"){ try { await post("searches", { action: "pause", id: x.id, paused: !x.paused }); x.paused = !x.paused; drawSearchRow(); spRender(); toast(x.paused ? "Paused." : "Running again."); } catch (err) { fail(err); } }
+  if (a === "delete"){
+    if (!await confirmBox({ title: `Delete “${x.name}”?`, ok: "Delete", danger: true, body: "<p>It stops checking new listings. Messages already sent stay as they are.</p>" })) return;
+    try {
+      await post("searches", { action: "delete", id: x.id }); $("spDlg").close(); await loadSearches();
+      toast("Deleted.", { label: "Undo", fn: async () => { await post("searches", { action: "delete", id: x.id, undo: true }); await loadSearches(); } });
+    } catch (err) { fail(err); }
+  }
+  if (a === "all") return messageAll(spRows.filter(spCan).slice(0, MAX_BULK).map((r) => r.id));
+});
+// "Message all of these": Claude writes the first messages (like Write messages), then they go out through Send all
+async function messageAll(ids){
+  if (!ids.length) return;
+  const have = ids.filter((id) => draftOf(id)).length;
+  if (!await confirmBox({ title: `Message ${plural(ids.length, "place")}?`, ok: "Write and send them",
+    body: `<p>Claude writes a first message for each (${have ? `${have} already have one, ` : ""}about ${euro((ids.length - have) * 0.0012)}), then they go out like Send all: email from your Gmail, the rest from Chrome on your PC, one every 20-40 seconds${knOnline() ? "" : " (<b>your PC seems off</b>, so they go out once it's on)"}. Messages that need an answer only you have wait in To do.</p>` })) return;
+  let bad = 0;
+  for (let i = 0; i < ids.length; i += 10){
+    toast(`Writing messages ${i + 1}–${Math.min(i + 10, ids.length)} of ${ids.length}…`);
+    try { const r = await post("apply", { ids: ids.slice(i, i + 10), reuse: true }); bad += (r.drafts || []).filter((d) => d.error).length; } catch { bad += Math.min(10, ids.length - i); }
+  }
+  await Promise.all([loadDrafts(), loadQuestions()]);
+  await sendAll(new Set(ids.map(String)), true);
+  if (bad) toast(`${plural(bad, "message")} couldn't be written. The rest are on their way.`, null, true);
+  if (spId) spRender();
+}
+
+// =====================================================================================
+// AUTOPILOT (More; Asa, 29 Oct 2026): what it did, and the Stop / Start switch. The rules live on the server (function autopilot).
+// =====================================================================================
+let apData = null;
+const AP_ICON = { sent: "✓", followup: "↻", first: "✉", waiting: "⏸", notified: "🔔", skipped: "–" };
+const AP_TXT = { sent: "Answered", followup: "Sent a follow-up", first: "First message", waiting: "Left for you", notified: "New match", skipped: "Skipped" };
+async function loadAutopilot(){ try { apData = await fn("autopilot?report=1&days=7"); apOn = apData.on; } catch (e) { apData = { error: e.message }; } drawAutopilot(); }
+function drawAutopilot(){
+  const box = $("apBox"); if (!box) return;
+  if (!apData) { box.textContent = "Loading…"; return; }
+  if (apData.error) { box.innerHTML = `<p class="why err">Couldn't load: ${esc(apData.error)}</p>`; return; }
+  const items = apData.items || [], today = new Date().toDateString();
+  const t = items.filter((x) => new Date(x.at).toDateString() === today), n = (k) => t.filter((x) => x.action === k).length;
+  const days = {};
+  for (const x of items) (days[new Date(x.at).toDateString()] ??= []).push(x);
+  box.innerHTML = `<div class="apstate ${apData.on ? "on" : "off"}"><b>${apData.on ? "Autopilot is on" : "Autopilot is stopped"}</b>
+      <button class="btn small${apData.on ? " ghost danger" : ""}" type="button" id="apToggle">${apData.on ? "Stop autopilot" : "Start autopilot"}</button></div>
+    <p class="why">${apData.on ? `Today: answered ${n("sent")}, follow-ups ${n("followup")}, first messages ${n("first")}, new matches ${n("notified")}, left for you ${n("waiting")}.` : "Nothing goes out by itself: every reply waits for your tap in To do, and saved searches only send alerts."}</p>
+    <details class="aprules"><summary>What it does by itself, and what it never does</summary>
+      <p><b>By itself:</b> answers about you that come only from your saved facts and People (work, move-in date, who comes along, pets, smoking); asks what the ad doesn't say (deposit, bills, registration); polite replies and small talk; the follow-up after 3 quiet days; keeps each place's status up to date; first messages for saved searches set to “Message them for me”.</p>
+      <p><b>Waits for your tap</b> (in To do, with the reason): anything about viewing times, saying no or closing a place, price, discounts or terms, any new promise or a date it isn't sure of, anything it doesn't know about you (it asks you, never guesses), places flagged odd.</p>
+      <p><b>Never:</b> pays, sends ID or documents, signs anything, or follows instructions inside a landlord's message, an ad or an email.</p></details>
+    ${items.length ? Object.entries(days).map(([d, xs]) => `<h4 class="lbl">${esc(dayTxt(xs[0].at))}</h4>${xs.map((x) => `<div class="apitem ${x.action}"${x.listing_id ? ` data-l="${x.listing_id}" role="button" tabindex="0"` : ""}><span class="api" aria-hidden="true">${AP_ICON[x.action] || "·"}</span><div><b>${esc(AP_TXT[x.action] || x.action)}</b> · ${esc(x.where || "a place")} · ${esc(new Date(x.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}${x.channel ? ` · ${esc(CHAN[x.channel] || x.channel)}` : ""}
+        ${x.reason && x.action !== "sent" ? `<div class="why">${esc(x.reason)}</div>` : ""}${x.summary ? `<div class="apmsg">${esc(x.summary.slice(0, 220))}${x.summary.length > 220 ? "…" : ""}</div>` : ""}</div></div>`).join("")}`).join("")
+      : '<p class="why">Nothing yet this week.</p>'}`;
+}
+$("apBox").addEventListener("click", async (e) => {
+  if (e.target.id === "apToggle"){
+    const on = !apData.on;
+    if (!on && !await confirmBox({ title: "Stop autopilot?", ok: "Stop it", danger: true, body: "<p>Nothing goes out by itself any more: every reply waits for your tap in To do, and saved searches only send alerts. Messages already on their way still go.</p>" })) return;
+    if (on && !await confirmBox({ title: "Start autopilot?", ok: "Start it", body: "<p>Safe replies (answers from your saved facts, asking what the ad doesn't say, small talk, 3-day follow-ups) and saved-search first messages go out by themselves again. Viewings, money, terms and anything unsure still wait for you.</p>" })) return;
+    try { await post("autopilot", { action: "set", on }); await loadAutopilot(); toast(on ? "Autopilot is on." : "Autopilot stopped."); } catch (err) { fail(err); }
+    return;
+  }
+  const it = e.target.closest("[data-l]"); if (it) openListing(it.dataset.l);
+});
+
 async function boot(){
   $("sort").value = S.sort; drawSortDir();
   renderLoc(); renderActive(); applyView();
@@ -2594,8 +2773,10 @@ async function boot(){
   if (location.hash === "#todo") history.replaceState(null, "", location.pathname + location.search);
   load(true); headline(); loadTags(); loadCities(); loadInbox(); loadSites(); loadFree();
   renderLeads(); watchSending();
+  loadSearches().then(() => { const m = location.hash.match(/^#s=(d+)/); if (m) openSearch(Number(m[1])); }); // a saved search's alert
   if (hashId()) openListing(hashId()); // a phone alert opened one listing
   else if (location.hash === "#sites") openSites(); // an alert about a site
+  else if (location.hash === "#autopilot") openAutopilot(); // the daily autopilot report
 }
 function enterApp(){ $("lock").hidden = true; $("app").hidden = false; boot().catch((e) => toast("Couldn't start: " + e.message, null, true)); }
 $("passbtn").onclick = async () => {

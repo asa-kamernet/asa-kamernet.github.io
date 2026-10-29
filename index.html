@@ -10,7 +10,7 @@
 <title>Kamernet Live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="app.css?v=21">
+<link rel="stylesheet" href="app.css?v=22">
 </head>
 <body>
 <!-- Layout: four tabs (Find, To do, Places, More) with a bottom tab bar, a floating Tell Claude button,
@@ -52,6 +52,7 @@
     </div>
     <div class="activef" id="activef"></div>
     <div class="bulkrow" id="bulkrow"><span>Many at once:</span><button class="btn ghost small" id="bkpick" type="button">Pick good matches</button><button class="btn ghost small" id="bkai" type="button">AI summaries for new ones</button><button class="btn ghost small" id="bksel" type="button">Select by hand</button></div>
+    <div class="ssrow" id="ssrow" hidden></div>
     <p class="count" id="count"></p>
     <div class="mapwrap" id="mapwrap" hidden>
       <div id="map" aria-label="Map of the listings"></div>
@@ -82,6 +83,11 @@
       <div class="health" id="health">Loading…</div>
       <div class="btnrow"><button class="btn" id="pushOn" type="button">Turn on alerts on this phone</button><button class="btn ghost" id="pushTest" type="button" hidden>Send a test alert to this phone</button><button class="btn ghost" id="pushOff" type="button" hidden>Turn off alerts on this phone</button></div>
       <p class="why" id="pushInfo">Alerts are per phone. Turn them on once on each phone (in Chrome) and choose Allow.</p>
+    </section>
+    <section class="panel" id="apPanel">
+      <h2>Autopilot</h2>
+      <p class="why">Answers landlords for you when it's safe, and lists everything it did here (plus an alert every evening).</p>
+      <div id="apBox">Loading…</div>
     </section>
     <section class="panel" id="sitesPanel">
       <h2>Sites Kamernet Live reads</h2>
@@ -161,7 +167,17 @@
 <dialog id="filtDlg" class="sheet" aria-labelledby="filtTitle"><div class="sheetin">
   <header class="sheettop"><h2 id="filtTitle">Filters</h2><button class="btn ghost" id="filtReset" type="button">Reset all</button></header>
   <div id="filtBody"></div>
-  <footer class="sheetbot"><button class="btn big" id="filtDone" type="button">Show listings</button></footer>
+  <footer class="sheetbot"><button class="btn big" id="filtDone" type="button">Show listings</button><button class="btn ghost" id="filtSave" type="button">Save as a search</button></footer>
+</div></dialog>
+
+<!-- Saved searches: save the filters with a name and a mode, and one search's own page -->
+<dialog id="ssDlg" class="sheet" aria-labelledby="ssTitle"><div class="sheetin">
+  <header class="sheettop"><h2 id="ssTitle">Save as a search</h2><button class="btn ghost" id="ssClose" type="button">Close</button></header>
+  <div id="ssBody"></div>
+</div></dialog>
+<dialog id="spDlg" class="page" aria-labelledby="spTitle"><div class="pagein">
+  <header class="pagetop"><button class="btn ghost" id="spBack" type="button">‹ Back</button><h2 id="spTitle"></h2></header>
+  <div id="spBody"></div>
 </div></dialog>
 
 <!-- Tell Claude -->
@@ -170,7 +186,7 @@
   <p class="why" id="askAbout"></p>
   <textarea id="askText" placeholder="What changed, or what should I do? For example: Oscar called, the viewing moved to Thursday 18:00. Or: this listing is a scam. Or: ask Max if Saturday works instead."></textarea>
   <button class="btn big" id="askSend" type="button">Send to Claude</button>
-  <p class="why">Claude answers here within seconds, even with your PC off. It can update statuses, viewing times and facts, answer questions about your listings, make AI summaries and write messages. If you ask it to send (“send it”, “ask Max if Saturday works”), that counts as your OK and it sends just those. Messages with a [YOUR ANSWER] gap wait in To do. Changes to this site itself are made in a Claude chat.</p>
+  <p class="why">Claude answers here within seconds, even with your PC off. It can update statuses, viewing times and facts, answer questions about your listings, make AI summaries and write messages. If you ask it to send in your own words (“tell Sanne Saturday works”, “let Jerichostraat know I'm in”, “ask Max if Saturday works”), that counts as your OK and it sends just those, only to the places you name. Questions like “did I reply?” never send. Messages with a [YOUR ANSWER] gap wait in To do. Changes to this site itself are made in a Claude chat.</p>
   <div id="askList" class="asklist"></div>
 </div></dialog>
 
@@ -204,7 +220,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button class="linkbtn" id="toastUndo" type="button" hidden>Undo</button></div>
 
 <dialog id="calDlg" class="caldlg" aria-label="Pick a date"></dialog>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 <script>// if the app's code didn't load (bad connection), say so instead of showing a blank page (no inline handlers: the CSP allows only this script, by its hash)
 if (typeof showTab !== "function"){ document.body.innerHTML = '<div style="padding:40px 20px;font:16px system-ui;text-align:center">Kamernet Live did not load properly.<br><br><button id="reloadBtn" type="button" style="font:inherit;padding:10px 18px;border-radius:10px">Try again</button></div>'; document.getElementById("reloadBtn").addEventListener("click", () => location.reload()); }</script>
 </body>
