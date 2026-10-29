@@ -118,7 +118,8 @@ const stageOf = (id) => STAGES.includes(stOf(id).stage) ? stOf(id).stage : "none
 const isClosed = (id) => !!stOf(id).closed;
 const unsent = () => drafts.filter((d) => d.send_status !== "sent");
 const draftOf = (id) => unsent().find((d) => String(d.listing_id) === String(id));
-const needsReply = (id) => threads[id]?.last_dir === "in" && !isClosed(id);
+// "Nothing to answer" (e.g. an automatic reply) hides their last message until a newer one comes in
+const needsReply = (id) => threads[id]?.last_dir === "in" && !isClosed(id) && !(Date.parse(stOf(id).seen_in_at || 0) >= Date.parse(threads[id].last_at));
 const needsVerdict = (id) => !isClosed(id) && stageOf(id) === "booked" && !!stOf(id).viewing_at && Date.parse(stOf(id).viewing_at) < Date.now();
 const payToApprove = (id) => (deals[id]?.payments || []).some((p) => p.status === "proposed");
 const SENDING = ["queued", "sending", "kn_queued", "kn_sending"]; // kn_ = on its way through Kamernet (the PC helper)
@@ -1016,8 +1017,8 @@ function stepItem(id){
   if (sg === "booked" && x.viewing_at) return { title: `Viewing ${when(x.viewing_at)}`, body: '<p class="why">You get a reminder on your phone before it.</p>',
     btns: `<button class="btn small ghost" type="button" data-t="late">I'm running late</button>` };
   if (sg === "booked") return { title: "Agree a viewing time", body: '<p class="why">Put the time under Viewing below once you agree one. You get a reminder before it.</p>' };
-  if (sg === "applied" || sg === "replied") return t?.last_dir === "in" ? { title: "They wrote to you", body: "" }
-    : { title: "Waiting for their reply", body: `<p class="why">${t ? `You wrote ${ago(t.last_at)}. ` : ""}If it stays quiet for 3 days, a short follow-up is written for you.</p>` };
+  if (sg === "applied" || sg === "replied") return needsReply(id) ? { title: "They wrote to you", body: "" }
+    : { title: "Waiting for their reply", body: `<p class="why">${t ? t.last_dir === "out" ? `You wrote ${ago(t.last_at)}. ` : "Their last message needed no answer. " : ""}If it stays quiet for 3 days, a short follow-up is written for you.</p>` };
   if (sg === "viewed") return { title: "Waiting for their decision", body: `<p class="why">${x.opinion === "want" ? "You said you want it. " : ""}Tell the app when they offer it to you.</p>`, btns: b("startdeal", "They offered it") };
   if (sg === "offer") return { title: "The deal", body: '<p class="why">Check the contract and the payments below before you sign or pay anything.</p>', btns: b("godeal", "Open the deal", true) };
   if (sg === "signed") return { title: dl.after?.move_in ? `Move-in day ${dayTxt(dl.after.move_in + "T12:00:00")}` : "Signed", body: '<p class="why">Next: move in, then register at the municipality (see the deal below).</p>', btns: b("moved", "I moved in") };
@@ -1187,7 +1188,7 @@ function todoItem(id){
   if (needsVerdict(id)) return card("view", va, "How was the viewing?", `<p class="why">You viewed it ${esc(dayTxt(va))}.</p>`,
     `<button class="btn small" type="button" data-t="v" data-v="want">Want it</button><button class="btn ghost small" type="button" data-t="v" data-v="maybe">Maybe</button><button class="btn ghost small danger" type="button" data-t="v" data-v="no">Not for me</button>`, true, "status");
   if (needsReply(id)) return card("answer", Date.parse(threads[id].last_at) || now, "They wrote to you", `<div class="msg">${quote(threads[id].last_body, 400)}</div>`,
-    `<button class="btn small" type="button" data-t="reply">Write a reply</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "conv");
+    `<button class="btn small" type="button" data-t="reply">Write a reply</button><button class="btn ghost small" type="button" data-t="noanswer">Nothing to answer</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "conv");
   const p = (dl?.payments || []).find((x) => x.status === "proposed");
   if (p){
     const w = payWarnings(id, dl, p);
@@ -1312,6 +1313,10 @@ async function todoAct(b){
       await Promise.all([loadDrafts(), loadQuestions()]); renderAll();
       if (t === "late") return openListing(Number(id), "draft");
       return toast(r.skipped ? "Nothing to answer: the last message is yours." : r.questions?.length ? "Written. Claude needs one answer from you first (Answer tab)." : "Written. It's in Send: check it, then send it.");
+    }
+    if (t === "noanswer"){
+      await setStand(id, { seen_in_at: true });
+      return toast("OK, back to waiting for them. If they stay quiet for 3 days, a short follow-up is written for you.", standUndo(id, before));
     }
     if (t === "seen"){ store.set(seenKey(id), "1"); return renderAll(); }
     if (t === "approve"){ if (await approvePay(id, b.dataset.pid)){ lpRender(); renderAll(); toast("Approved. The bank details are on the place page, under the deal.", { label: "Show them", fn: () => openListing(Number(id), "deal") }); } return; }
@@ -1741,7 +1746,7 @@ async function setStand(id, set){
   lpRender(); renderAll(); reloadList();
 }
 function standUndo(id, before){
-  return { label: "Undo", fn: () => setStand(id, { stage: before.stage || "none", opinion: before.opinion ?? null, closed: before.closed ?? null, viewing_at: before.viewing_at ?? null }) };
+  return { label: "Undo", fn: () => setStand(id, { stage: before.stage || "none", opinion: before.opinion ?? null, closed: before.closed ?? null, viewing_at: before.viewing_at ?? null, seen_in_at: before.seen_in_at ? true : null }) };
 }
 
 // ---- every button on the listing page ----
