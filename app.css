@@ -425,3 +425,24 @@ details.stop .btnrow{margin-top:6px}
 .fgrid button{border:1px solid var(--line);background:var(--surface);border-radius:6px;min-height:30px;cursor:pointer;padding:0}
 .fgrid button.on{background:var(--ok);border-color:var(--ok)}
 #freeTxt{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;resize:vertical;margin:6px 0}
+/* answer fields on To do cards and the place page (29 Oct 2026) */
+.asks{display:flex;flex-direction:column;gap:10px;min-width:0}
+.agroup{display:flex;flex-direction:column;border-radius:12px;padding:2px 12px;background:var(--surface)}
+.agroup.done{background:var(--ok-soft)}
+.agroup.open{border:1px solid var(--warn)}
+.agroup .ghead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:8px 0 2px}
+.askrow{display:flex;flex-direction:column;gap:6px;padding:9px 0;border-top:1px solid var(--line);min-width:0;font-size:14.5px}
+.agroup .ghead + .askrow{border-top:0}
+.askrow .opts{display:flex;flex-wrap:wrap;gap:6px}
+.askrow input:not([type=date]):not([type=datetime-local]),.askrow textarea{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 10px;min-height:40px;width:100%;min-width:0}
+.askrow .money{display:flex;align-items:center;gap:6px;font-family:var(--mono)}
+.askrow .money input{max-width:160px}
+.askrow .calbtn{align-self:flex-start}
+.askfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.askfoot .linkbtn{font-size:13.5px}
+.yans summary{cursor:pointer;font-size:13.5px;color:var(--muted)}
+.yans ul{margin:6px 0;padding-left:18px;font-size:13.5px;display:flex;flex-direction:column;gap:3px}
+.tellbox{display:flex;flex-direction:column;gap:6px}
+.tellbox textarea{border:1px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 10px;width:100%}
+.calgrid button.offer{box-shadow:inset 0 0 0 2px var(--accent)}
+.caltimes .chip.clash{border-color:var(--bad);background:var(--bad-soft)}

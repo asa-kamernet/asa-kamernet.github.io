@@ -876,6 +876,137 @@ async function questionClick(e){
   } catch (err){ st.textContent = "Couldn't save: " + err.message; card.querySelectorAll("button,input").forEach((x) => { x.disabled = false; }); }
   return true;
 }
+// ---- Answer fields (Asa, 29 Oct 2026): every question in a landlord's message gets its own answer. Claude answers what your fact
+// sheet, People, profile or the conversation already say (Change to fix it); the rest is yours to fill in or skip; then "Rewrite
+// reply". Answers about you are saved for all places, so you never answer them twice; things they ask you to DO go to Other. ----
+const askEd = {}, tellOpen = {}; let todos = [];
+async function loadTodos(){ try { todos = (await post("replydraft", { action: "todos" })).todos || []; } catch {} }
+const asksOf = (d) => Array.isArray(d?.asks) ? d.asks : [];
+const askE = (d, i) => ((askEd[d.id] ||= {})[i] ||= {});
+const askVal = (d, i) => { const e = askEd[d.id]?.[i]; return String(e && "v" in e ? e.v : asksOf(d)[i]?.answer ?? ""); };
+const askSkip = (d, i) => askEd[d.id]?.[i]?.skip ?? !!asksOf(d)[i]?.skipped;
+const askScope = (d, i) => askEd[d.id]?.[i]?.scope ?? asksOf(d)[i]?.scope;
+const asksLeft = (d) => asksOf(d).filter((a, i) => !askSkip(d, i) && !askVal(d, i).trim()).length;
+// the reply still waits on you: a question nobody answered, a gap left in the text, or you tapped "Change my answers"
+const asksPending = (d) => asksOf(d).length > 0 && !isSending(d) && d.send_status !== "sent" && (!!askEd[d.id]?.reopen || asksOf(d).some((a) => !a.answer && !a.skipped) || /\[YOUR ANSWER/i.test(d.draft));
+const ASK_SRC = { facts: "your fact sheet", place: "your answer for this place", profile: "your profile", thread: "what you wrote to them", you: "your answer" };
+function askShow(a, v){
+  if (!v) return "";
+  if (a.kind === "people") return pplIds(v) ? pplNames(v).replace(/^./, (c) => c.toUpperCase()) : v;
+  if (a.kind === "slot" && v === "none") return "None of these work: ask for another time";
+  if (/^\d{4}-\d\d-\d\d(T\d\d:\d\d)?$/.test(v)){
+    const t = new Date(v.length === 10 ? v + "T12:00:00" : v);
+    return t.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + (v.length > 10 ? " at " + v.slice(11, 16) : "");
+  }
+  if (a.kind === "money" && /^\d+([.,]\d+)?$/.test(v)) return "€" + v;
+  return v;
+}
+// the right way to answer each kind: buttons, People chips, the calendar pop-up (only their times for a viewing offer), € or text
+function askInput(d, a, i){
+  const v = askVal(d, i), r = cache[d.listing_id] || {};
+  if (a.kind === "yesno" || a.kind === "pick") return `<div class="opts">${(a.kind === "yesno" ? ["Yes", "No"] : a.options || []).map((o) => `<button class="chip" type="button" data-ak="pick" data-v="${esc(o)}" aria-pressed="${v === o}">${esc(o)}</button>`).join("")}</div>`;
+  if (a.kind === "people") return `<div class="pwrap" data-ak="ppl">${peopleChips(pplIds(v) ? v : null)}</div>`;
+  if (a.kind === "date") return `<input type="date" data-ak="in" value="${esc(/^\d{4}-\d\d-\d\d$/.test(v) ? v : "")}" data-from="${esc(String(r.available_from || "").slice(0, 10))}">`;
+  if (a.kind === "slot" || a.kind === "datetime") return `<input type="datetime-local" data-ak="in" value="${esc(/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(v) ? v : "")}"${a.kind === "slot" ? ` data-slots="${esc((a.slots || []).join(","))}"${v === "none" ? ' data-none="1"' : ""}` : ""}>${a.kind === "slot" ? `<span class="why">They offered: ${(a.slots || []).map((s) => esc(askShow(a, s))).join(", ")}</span>` : ""}`;
+  if (a.kind === "money") return `<label class="money"><span>€</span><input type="number" inputmode="decimal" min="0" data-ak="in" value="${esc(v)}" placeholder="0"></label>`;
+  if (a.kind === "long") return `<textarea data-ak="in" rows="3" placeholder="Your answer">${esc(v)}</textarea>`;
+  return `<input data-ak="in" value="${esc(v)}" placeholder="Your answer">`;
+}
+function askRow(d, a, i, claude){
+  const v = askVal(d, i), sc = askScope(d, i), e = askEd[d.id]?.[i] || {}, scTxt = sc === "global" ? "for all places" : "only this place";
+  if (claude && !e.open) return `<div class="askrow" data-i="${i}"><b>${esc(a.text)}</b><span>${esc(askShow(a, v))}</span>
+    <div class="askfoot"><span class="why">${"v" in e && e.v !== a.answer ? "Your new answer" : "From " + (ASK_SRC[a.from] || "your facts")} · ${scTxt}</span><button class="linkbtn" type="button" data-ak="chg">Change</button></div></div>`;
+  if (!claude && askSkip(d, i)) return `<div class="askrow" data-i="${i}"><b>${esc(a.text)}</b><span class="why"><i>Skipped: the reply leaves this out.</i></span>
+    <div class="askfoot"><span></span><button class="linkbtn" type="button" data-ak="unskip">Answer it after all</button></div></div>`;
+  return `<div class="askrow" data-i="${i}"><b>${esc(a.text)}</b>${askInput(d, a, i)}
+    <div class="askfoot"><button class="linkbtn" type="button" data-ak="scope">${scTxt.replace(/^./, (c) => c.toUpperCase())} · switch</button>${claude ? `<button class="linkbtn" type="button" data-ak="done">Done</button>` : `<button class="linkbtn" type="button" data-ak="skip">Skip</button>`}</div></div>`;
+}
+function askBody(d){
+  const as = asksOf(d), id = String(d.listing_id), left = asksLeft(d);
+  const idx = as.map((a, i) => [a, i]), mine = idx.filter(([a]) => a.answer && !a.skipped), open = idx.filter(([a]) => !(a.answer && !a.skipped));
+  const td = todos.filter((t) => String(t.listing_id) === id);
+  return `<div class="asks" data-aid="${d.id}">
+    ${threads[id]?.last_dir === "in" ? `<div class="msg">${quote(threads[id].last_body, 600)}</div>` : ""}
+    <p class="why"><b>They ask ${plural(as.length, "thing")}</b>: Claude answered ${mine.length}, ${open.length} ${open.length === 1 ? "needs" : "need"} you.</p>
+    ${mine.length ? `<div class="agroup done"><div class="ghead"><b>Claude answered these</b><span class="why">Check, change if needed</span></div>${mine.map(([a, i]) => askRow(d, a, i, true)).join("")}</div>` : ""}
+    ${open.length ? `<div class="agroup open"><div class="ghead"><b>Only you can answer</b><span class="why aleft">${left ? `${left} left` : "All done"}</span></div>${open.map(([a, i]) => askRow(d, a, i, false)).join("")}</div>` : ""}
+    ${td.length ? `<p class="why">They also ask you to ${td.map((t) => esc(t.text.charAt(0).toLowerCase() + t.text.slice(1))).join(" and ")}: that's in Other, not in this reply.</p>` : ""}
+    <div class="btnrow"><button class="btn small" type="button" data-ak="go"${left ? " disabled" : ""}>Rewrite reply</button>${askEd[d.id]?.reopen ? `<button class="btn ghost small" type="button" data-ak="keep">Keep the reply as it is</button>` : ""}</div>
+    <p class="why aleft2"${left ? "" : " hidden"}>Fill in or skip the open ones first.</p>
+  </div>`;
+}
+const askRedraw = () => { renderAll(); if (lpId) lpRender(); };
+function askRefresh(box, d){
+  const left = asksLeft(d), go = box.querySelector('[data-ak="go"]');
+  if (go) go.disabled = !!left;
+  const l = box.querySelector(".aleft"); if (l) l.textContent = left ? `${left} left` : "All done";
+  const l2 = box.querySelector(".aleft2"); if (l2) l2.hidden = !left;
+}
+// one handler for the answer fields, in To do and on the place page; true when the click was inside them
+async function askClick(e){
+  const box = e.target.closest(".asks"); if (!box) return false;
+  const d = drafts.find((x) => x.id === Number(box.dataset.aid)), b = e.target.closest("[data-ak]");
+  if (!d || !b) return true;
+  const row = b.closest(".askrow"), i = row ? Number(row.dataset.i) : -1, k = b.dataset.ak;
+  if (k === "ppl"){ setTimeout(() => { const v = chipsVal(row.querySelector(".pwrap")); askE(d, i).v = v ?? ""; askRefresh(box, d); }, 0); return true; } // the chip toggles first (document handler)
+  if (k === "pick"){ const x = askE(d, i); x.v = askVal(d, i) === b.dataset.v ? "" : b.dataset.v; askRedraw(); return true; }
+  if (k === "chg" || k === "done"){ askE(d, i).open = k === "chg"; askRedraw(); return true; }
+  if (k === "skip" || k === "unskip"){ askE(d, i).skip = k === "skip"; askRedraw(); return true; }
+  if (k === "scope"){ askE(d, i).scope = askScope(d, i) === "global" ? "place" : "global"; askRedraw(); return true; }
+  if (k === "keep"){ delete askEd[d.id]; askRedraw(); return true; }
+  if (k !== "go") return true;
+  const answers = asksOf(d).map((a, j) => {
+    let v = askVal(d, j); const w = box.querySelector(`.askrow[data-i="${j}"] .pwrap`);
+    if (w){ const c = chipsVal(w); if (c != null) v = c; }
+    return { i: j, answer: v, skipped: askSkip(d, j), scope: askScope(d, j) };
+  });
+  b.disabled = true; b.textContent = "Rewriting… (about 10 seconds)";
+  try {
+    const r = await post("replydraft", { action: "answer_asks", application_id: d.id, answers });
+    delete askEd[d.id];
+    await Promise.all([loadDrafts(), loadQuestions(), loadPeople()]);
+    if (!$("v-inbox").hidden) todoTab = "send";
+    askRedraw();
+    const all = (r.saved || []).filter((s) => s.scope === "global").map((s) => s.text.replace(/\?$/, "").toLowerCase()), here = (r.saved || []).filter((s) => s.scope === "place").length;
+    toast(`Reply rewritten: check it, then send it.${all.length ? ` Saved for all places: ${all.join("; ")}.` : ""}${here ? ` ${plural(here, "answer")} kept for this place.` : ""}${r.also_filled ? ` Also filled in ${plural(r.also_filled, "other reply", "other replies")}.` : ""}`,
+      r.undo?.length ? { label: "Undo saving", fn: async () => { await post("replydraft", { action: "undo_facts", facts: r.undo }); toast("Your fact sheet is back as it was. The reply stays as written."); } } : null);
+  } catch (err){ b.disabled = false; b.textContent = "Rewrite reply"; fail(err); }
+  return true;
+}
+function askTyped(e){
+  const inp = e.target.closest?.('[data-ak="in"]'), box = inp?.closest(".asks"); if (!box) return;
+  const d = drafts.find((x) => x.id === Number(box.dataset.aid)); if (!d) return;
+  const i = Number(inp.closest(".askrow").dataset.i);
+  askE(d, i).v = inp.dataset.none ? "none" : inp.value;
+  if (e.type === "change" && /date/.test(inp.type)) askRedraw(); else askRefresh(box, d);
+}
+document.addEventListener("input", askTyped);
+document.addEventListener("change", askTyped);
+// things a landlord asked you to DO (register on their website, call them): their own card in To do > Other, never in the reply
+function todoCard(t){
+  const r = cache[t.listing_id] || {};
+  let host = ""; try { host = t.link ? new URL(t.link).hostname.replace(/^www\./, "") : ""; } catch {}
+  return `<article class="tcard" data-tdid="${t.id}">
+    <button class="ttl" type="button" data-tdopen="${t.listing_id}">${esc(r.street || "A place")}${r.city ? `, ${esc(r.city)}` : ""} <span aria-hidden="true">›</span></button>
+    <div class="waitline">They asked ${esc(when(t.created_at))}</div>
+    <div class="twhy">${esc(t.text)}</div>
+    ${t.phone ? `<p class="why">Their number: <b>${esc(t.phone)}</b></p>` : ""}
+    <p class="why">Not part of your reply: do it yourself, then tap I did it.</p>
+    <div class="btnrow">${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
+  </article>`;
+}
+const openTodos = () => todos.filter((t) => !isClosed(String(t.listing_id)));
+async function todoClick(e){
+  const o = e.target.closest("[data-tdopen]"); if (o){ openListing(Number(o.dataset.tdopen)); return true; }
+  const b = e.target.closest("[data-td]"); if (!b) return false;
+  const id = Number(b.closest("[data-tdid]").dataset.tdid), status = b.dataset.td;
+  try {
+    await post("replydraft", { action: "todo_set", id, status });
+    todos = todos.filter((t) => t.id !== id); renderAll();
+    toast(status === "done" ? "Noted: done." : "Noted: you're not doing it.", { label: "Undo", fn: async () => { await post("replydraft", { action: "todo_set", id, status: "open" }); await loadTodos(); renderAll(); } });
+  } catch (err){ fail(err); }
+  return true;
+}
 // ---- People who may move in with you (Asa, 26 Oct 2026): mini profiles, picked per place for "Who comes along?" ----
 // An answer "people:3,5" means those two come along, "people:" means just you. Messages use name + intro, the rest only if asked.
 let people = [], peopleAns = {};
@@ -1175,20 +1306,24 @@ function todoItem(id){
     const wait = Date.parse(d.created_at) || now, ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, wq = questionsFor(d.id);
     if (isSending(d)) return card("send", wait, d.send_status === "kn_sending" ? `Sending on ${esc(chanName(ch, id))} now…` : d.send_status === "kn_queued" ? (knOnline() ? `Sending on ${esc(chanName(ch, id))} in a minute or two…` : `Waiting for your PC to send it on ${esc(chanName(ch, id))}`) : "Sending by email…",
       `<div class="msg">${esc(text)}</div>`, d.send_status === "kn_sending" ? "" : `<button class="btn ghost small" type="button" data-t="cancel">Cancel</button>`, false, "draft");
+    if (asksPending(d)) return card("answer", Date.parse(threads[id]?.last_at) || wait, "They asked you something", askBody(d),
+      `<button class="btn ghost small" type="button" data-t="noanswer">Nothing to answer</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "draft");
     if (wq.length) return card("answer", wait, `Claude needs ${wq.length > 1 ? "answers" : "an answer"} before your ${d.kind === "reply" ? "reply" : "first message"} can go`, wq.map(questionCard).join(""), `<button class="btn ghost small" type="button" data-t="edit">See the message</button>`, true, "draft");
     const send = canSendFor(d, ch);
     return card("send", wait, d.send_status === "failed" ? `Couldn't send it: ${esc(d.send_error || "unknown error")}` : d.kind === "reply" ? "Your reply is ready" : "Your first message is ready",
       `${d.kind === "reply" && threads[id]?.last_dir === "in" ? `<p class="why">They wrote: ${quote(threads[id].last_body, 160)}</p>` : ""}
       <div class="msg">${esc(text)}</div>
       ${d.draft_en ? `<details class="en"><summary>English translation (only for you, not sent)</summary><div class="entext">${esc(d.draft_en)}</div></details>` : ""}
-      ${(d.warnings || []).length ? `<ul class="warns">${d.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${asksOf(d).length ? `<details class="yans"><summary>Your answers (${asksOf(d).length})</summary><ul>${asksOf(d).map((a) => `<li><b>${esc(a.text)}</b> ${a.skipped ? "<i>skipped</i>" : esc(askShow(a, a.answer))}</li>`).join("")}</ul><button class="linkbtn" type="button" data-t="asksback">‹ Change my answers</button></details>` : ""}
+      ${(d.warnings || []).filter((w) => !asksOf(d).length || !/^They/.test(w)).length ? `<ul class="warns">${d.warnings.filter((w) => !asksOf(d).length || !/^They/.test(w)).map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${tellOpen[d.id] ? `<div class="tellbox"><textarea class="telltxt" rows="2" placeholder="e.g. shorter, and ask if bills are included" aria-label="What should Claude change?"></textarea><div class="btnrow"><button class="btn small" type="button" data-t="tellgo">Rewrite</button><button class="btn ghost small" type="button" data-t="tellx">Cancel</button></div></div>` : ""}
       <p class="why">${ch === "other" ? "No way to reach the landlord saved yet: tap Edit and add their email or phone." : `Goes through ${esc(chanName(ch, id))}${send && ch !== "email" ? `, from Chrome on your PC${knOnline() ? "" : " (it seems off now; it waits for it)"}` : ""}.`}</p>`,
-      `${send ? `<button class="btn small" type="button" data-t="send" data-ch="${ch}">Send for me</button>` : ""}<button class="btn ghost small" type="button" data-t="copy" data-ch="${ch}">Copy and open</button><button class="btn ghost small" type="button" data-t="edit">Edit</button>${d.kind === "reply" ? "" : `<button class="btn ghost small danger" type="button" data-t="notint">Not interested</button>`}`, true, "draft");
+      `${send ? `<button class="btn small" type="button" data-t="send" data-ch="${ch}">Send for me</button>` : ""}<button class="btn ghost small" type="button" data-t="copy" data-ch="${ch}">Copy and open</button><button class="btn ghost small" type="button" data-t="tell">Tell Claude what to change</button><button class="btn ghost small" type="button" data-t="edit">Edit</button>${d.kind === "reply" ? "" : `<button class="btn ghost small danger" type="button" data-t="notint">Not interested</button>`}`, true, "draft");
   }
   if (needsVerdict(id)) return card("view", va, "How was the viewing?", `<p class="why">You viewed it ${esc(dayTxt(va))}.</p>`,
     `<button class="btn small" type="button" data-t="v" data-v="want">Want it</button><button class="btn ghost small" type="button" data-t="v" data-v="maybe">Maybe</button><button class="btn ghost small danger" type="button" data-t="v" data-v="no">Not for me</button>`, true, "status");
   if (needsReply(id)) return card("answer", Date.parse(threads[id].last_at) || now, "They wrote to you", `<div class="msg">${quote(threads[id].last_body, 400)}</div>`,
-    `<button class="btn small" type="button" data-t="reply">Write a reply</button><button class="btn ghost small" type="button" data-t="noanswer">Nothing to answer</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "conv");
+    `<button class="btn small" type="button" data-t="reply">See what they ask</button><button class="btn ghost small" type="button" data-t="noanswer">Nothing to answer</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "conv");
   const p = (dl?.payments || []).find((x) => x.status === "proposed");
   if (p){
     const w = payWarnings(id, dl, p);
@@ -1207,10 +1342,10 @@ function todoItem(id){
   return null;
 }
 function todoItems(){ return leadIds().map(todoItem).filter(Boolean).sort((a, b) => a.wait - b.wait); }
-const todoCount = () => todoItems().filter((i) => i.count).length + globalQs().length + (inbox?.open || []).length;
+const todoCount = () => todoItems().filter((i) => i.count).length + globalQs().length + (inbox?.open || []).length + openTodos().length;
 async function renderInbox(){
   await ensureRows(leadIds());
-  const items = todoItems(), other = globalQs().length + (inbox?.open || []).length;
+  const items = todoItems(), other = globalQs().length + (inbox?.open || []).length + openTodos().length;
   const n = items.filter((i) => i.count).length + other;
   $("inboxsub").textContent = n ? `${plural(n, "thing")} waiting on you` : "You're up to date.";
   const by = Object.fromEntries(TODO_TABS.map(([k]) => [k, items.filter((i) => i.tab === k)]));
@@ -1222,7 +1357,7 @@ async function renderInbox(){
   // PC-only sends (Kamernet, WhatsApp, ad sites) wait in kn-send while the PC is off; turning the PC on sends them (up to 3 days)
   const pcWait = !knOnline() && Number(inbox?.health?.kn_queued || 0);
   const body = todoTab === "other"
-    ? globalQs().map(questionCard).join("") + ((inbox?.open || []).length ? `<p class="why">These messages came in but couldn't be matched to a place. Find it, tap it, and Claude files it and writes a reply.</p>${inbox.open.map((i) => `<div class="ib" data-iid="${i.id}">
+    ? openTodos().map(todoCard).join("") + globalQs().map(questionCard).join("") + ((inbox?.open || []).length ? `<p class="why">These messages came in but couldn't be matched to a place. Find it, tap it, and Claude files it and writes a reply.</p>${inbox.open.map((i) => `<div class="ib" data-iid="${i.id}">
       <div><b>${src(i)}</b> · ${esc(when(i.created_at))}${i.summary ? " · " + esc(i.summary) : ""}</div>
       ${i.state === "error" ? `<div>Couldn't read it automatically. Picking the place tries again.</div>` : ""}
       <div class="body">${esc(i.body || "")}</div>
@@ -1312,9 +1447,19 @@ async function todoAct(b){
       if (t === "late" && r.application_id) await post("replydraft", { action: "redo", application_id: r.application_id, instruction: `Say I'm running about 10 minutes late for the viewing at ${new Date(vAt(id)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}; apologise briefly. Nothing else.` });
       await Promise.all([loadDrafts(), loadQuestions()]); renderAll();
       if (t === "late") return openListing(Number(id), "draft");
-      return toast(r.skipped ? "Nothing to answer: the last message is yours." : r.questions?.length ? "Written. Claude needs one answer from you first (Answer tab)." : "Written. It's in Send: check it, then send it.");
+      return toast(r.skipped ? "Nothing to answer: the last message is yours." : r.asks?.length ? `They ask ${plural(r.asks.length, "thing")}: answer ${r.asks.filter((a) => !a.answer).length ? "the open ones" : "or check them"} on the card.` : r.questions?.length ? "Written. Claude needs one answer from you first (Answer tab)." : "Written. It's in Send: check it, then send it.");
+    }
+    if (t === "asksback"){ askEd[d.id] = { reopen: true }; todoTab = "answer"; return renderAll(); }
+    if (t === "tell" || t === "tellx"){ tellOpen[d.id] = t === "tell"; renderAll(); if (t === "tell") setTimeout(() => $("inboxv").querySelector(`[data-id="${id}"] .telltxt`)?.focus(), 0); return; }
+    if (t === "tellgo"){
+      const instruction = card.querySelector(".telltxt")?.value.trim(); if (!instruction) return toast("Write what Claude should change first.", null, true);
+      b.disabled = true; b.textContent = "Rewriting… (about 10 seconds)";
+      await post("replydraft", { action: "redo", application_id: d.id, instruction });
+      delete draftEdits[d.id]; tellOpen[d.id] = false; await loadDrafts(); renderAll(); if (lpId === id) lpRender();
+      return toast("Rewritten with your note. Check it again.");
     }
     if (t === "noanswer"){
+      if (d && asksPending(d)){ await post("apply", { action: "discard", application_id: d.id }); await loadDrafts(); }
       await setStand(id, { seen_in_at: true });
       return toast("OK, back to waiting for them. If they stay quiet for 3 days, a short follow-up is written for you.", standUndo(id, before));
     }
@@ -1334,6 +1479,7 @@ function sendAllPlan(ds){
   for (const d of ds){
     if (isSending(d)) continue;
     if (waitsOnQ(d)){ skip.push([d, "waiting on a question in To do"]); continue; }
+    if (asksPending(d)){ skip.push([d, "waiting on your answers in To do"]); continue; }
     const ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, c = contacts[d.listing_id] || {};
     if (ch === "email" && c.email || ch === "kamernet" || ch === "whatsapp" && c.phone || ch === "site" && cache[d.listing_id]?.url) go.push([d, ch, text]);
     else skip.push([d, "no email, phone or link saved for the landlord"]);
@@ -1367,6 +1513,7 @@ $("inboxv").addEventListener("click", async (e) => {
   if (e.target.closest(".sendall")) return sendAll();
   const sb = e.target.closest(".stab");
   if (sb){ todoTab = sb.dataset.stab; store.set("kn_todo_tab", todoTab); return renderInbox(); }
+  if (await askClick(e) || await todoClick(e)) return;
   if (await questionClick(e)) return;
   const tb = e.target.closest("[data-t]");
   if (tb && tb.closest("[data-id]")) return todoAct(tb);
@@ -1656,6 +1803,7 @@ function draftSection(id){
     ${d.send_status === "failed" ? `<div class="flags">Couldn't send it: ${esc(d.send_error || "unknown error")}. Try again, or copy it.</div>` : ""}
     ${(d.warnings || []).length || (d.notes || []).length ? `<div class="headsup"><b>Heads up</b><ul class="warns">${[...(d.warnings || []), ...(d.notes || [])].map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
     <div class="draft" data-aid="${d.id}">
+      ${asksPending(d) ? `<div class="decide">${askBody(d)}</div>` : ""}
       ${questionsFor(d.id).length && !sending ? `<div class="decide"><b>Open ${questionsFor(d.id).length > 1 ? "questions" : "question"}</b><p class="why">Answer once: it's saved and used in every message that needs it.</p>${questionsFor(d.id).map(questionCard).join("")}</div>` : ""}
       <textarea id="dText" aria-label="Message" ${sending ? "disabled" : ""}>${esc(draftEdits[d.id] ?? d.draft)}</textarea><span class="saved" id="dSaved"></span>
       ${d.draft_en ? `<details class="english" open><summary>In English (only for you, not sent)</summary><p class="why" style="white-space:pre-wrap">${esc(d.draft_en)}</p></details>` : ""}
@@ -1752,6 +1900,7 @@ function standUndo(id, before){
 // ---- every button on the listing page ----
 $("lpBody").addEventListener("click", async (e) => {
   const id = lpId; if (!id) return;
+  if (await askClick(e)) return;
   if (await questionClick(e)) return;
   const b = e.target.closest("button"); if (!b) return;
   const before = { ...stOf(id) };
@@ -2304,10 +2453,11 @@ function renderAll(){
 // quiet = the timer did it: don't redraw an open listing while you're typing in it
 async function refreshAll(quiet = false){
   // one part failing (a slow function, a bad answer) must not stop the rest
-  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadPeople(), loadDeals(), loadInbox(), loadSites(), headline(), refreshRows(leadIds())]);
+  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadPeople(), loadDeals(), loadInbox(), loadSites(), loadTodos(), headline(), refreshRows(leadIds())]);
   const typing = document.activeElement?.closest?.("#lp") && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  const typingTodo = document.activeElement?.closest?.("#inboxv") && /INPUT|TEXTAREA/.test(document.activeElement.tagName); // keep what you're typing (answers are kept anyway)
   try { if (lpId){ await loadThread(lpId); if (!(quiet && typing)) lpRender(); } } catch {}
-  try { renderAll(); } catch {}
+  try { if (!(quiet && typingTodo)) renderAll(); } catch {}
   await reloadList();
 }
 // new info shows up by itself: every 30 s while the site is open on screen
@@ -2324,7 +2474,8 @@ const ymdL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "
 const isFree = (d, hh) => !!freeGrid?.[FDAYS[(d.getDay() + 6) % 7]]?.[hh < 12 ? 0 : hh < 17 ? 1 : 2];
 function calText(inp){
   const v = inp.value, dt = inp.type === "datetime-local";
-  if (!v) return dt ? "Pick a date and time" : "Pick a date";
+  if (inp.dataset.none) return "None of these work";
+  if (!v) return inp.dataset.slots ? "Pick one of their times" : dt ? "Pick a date and time" : "Pick a date";
   const d = new Date(dt ? v : v + "T12:00:00");
   return isNaN(d) ? v : d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" }) + (dt ? " " + v.slice(11, 16) : "");
 }
@@ -2344,25 +2495,33 @@ function calify(){
 new MutationObserver(() => { if (!calQueued){ calQueued = true; setTimeout(calify, 0); } }).observe(document.body, { childList: true, subtree: true });
 function openCal(inp){
   const v = inp.value, sel = v ? v.slice(0, 10) : "", from = inp.dataset.from || "";
-  const start = new Date((sel || (from > ymdL(new Date()) ? from : "") || ymdL(new Date())) + "T12:00:00");
-  cal = { inp, dt: inp.type === "datetime-local", sel, from, time: inp.type === "datetime-local" && v ? v.slice(11, 16) : "", y: start.getFullYear(), m: start.getMonth() };
+  const slots = inp.dataset.slots ? inp.dataset.slots.split(",").filter(Boolean) : null; // they offered these times: only those can be picked
+  const lid = inp.closest("[data-id]")?.dataset.id || lpId || "";
+  const start = new Date((sel || slots?.[0]?.slice(0, 10) || (from > ymdL(new Date()) ? from : "") || ymdL(new Date())) + "T12:00:00");
+  cal = { inp, dt: inp.type === "datetime-local", sel, from, slots, lid, time: inp.type === "datetime-local" && v ? v.slice(11, 16) : "", y: start.getFullYear(), m: start.getMonth() };
   drawCal(); $("calDlg").showModal();
 }
 function drawCal(){
   const c = cal, first = new Date(c.y, c.m, 1), off = (first.getDay() + 6) % 7, today = ymdL(new Date());
   const cells = [...Array(42)].map((_, k) => new Date(c.y, c.m, 1 - off + k)), selD = c.sel ? new Date(c.sel + "T12:00:00") : null;
-  const times = [...Array(13)].map((_, k) => String(8 + k).padStart(2, "0") + ":00");
+  const sdays = c.slots ? [...new Set(c.slots.map((s) => s.slice(0, 10)))] : null;
+  const times = c.slots ? c.slots.filter((s) => s.startsWith(c.sel)).map((s) => s.slice(11, 16)) : [...Array(13)].map((_, k) => String(8 + k).padStart(2, "0") + ":00");
+  // another viewing less than 2 hours away
+  const clash = (t) => { const at = Date.parse(`${c.sel}T${t}`); return Object.entries(statuses).some(([k, s]) => k !== String(c.lid) && s.viewing_at && !s.closed && Math.abs(Date.parse(s.viewing_at) - at) < 7200000); };
   $("calDlg").innerHTML = `<div class="calhead"><button class="btn ghost small" type="button" data-c="prev" aria-label="Previous month">‹</button><b>${first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</b><button class="btn ghost small" type="button" data-c="next" aria-label="Next month">›</button></div>
     <div class="calgrid">${WD.map((w) => `<span class="wd">${w}</span>`).join("")}${cells.map((d) => { const s = ymdL(d);
-      return `<button type="button" data-day="${s}" class="${d.getMonth() !== c.m ? "out" : ""}${s === today ? " today" : ""}${s === c.sel ? " sel" : ""}${s === c.from ? " from" : ""}" aria-label="${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}"${s === c.sel ? ' aria-pressed="true"' : ""}>${d.getDate()}</button>`; }).join("")}</div>
+      return `<button type="button" data-day="${s}" class="${d.getMonth() !== c.m ? "out" : ""}${s === today ? " today" : ""}${s === c.sel ? " sel" : ""}${s === c.from ? " from" : ""}${sdays?.includes(s) ? " offer" : ""}"${sdays && !sdays.includes(s) ? " disabled" : ""} aria-label="${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}"${s === c.sel ? ' aria-pressed="true"' : ""}>${d.getDate()}</button>`; }).join("")}</div>
     ${c.from ? `<p class="why" style="margin-top:6px">Green ring: the ad says it's free from ${esc(dayTxt(c.from + "T12:00:00"))}.</p>` : ""}
+    ${sdays ? `<p class="why" style="margin-top:6px">Only the days they offered can be picked (blue ring).</p>` : ""}
     ${c.dt ? `<p class="why" style="margin-top:8px">${selD ? "Pick a time" + (freeGrid ? " (green: you're free then)" : "") : "Pick a day first"}</p>
-      <div class="caltimes">${times.map((t) => `<button class="chip${selD && isFree(selD, +t.slice(0, 2)) ? " free" : ""}${t === c.time ? " on" : ""}" type="button" data-tm="${t}"${selD ? "" : " disabled"}>${t}</button>`).join("")}</div>
-      <label class="why" style="display:flex;gap:8px;align-items:center;margin-top:8px">Other time <input type="time" data-c="time" value="${esc(c.time)}"></label>` : ""}
-    <div class="calfoot"><button class="linkbtn" type="button" data-c="clear">Clear</button><span class="btnrow"><button class="btn ghost small" type="button" data-c="cancel">Cancel</button>${c.dt ? `<button class="btn small" type="button" data-c="ok"${c.sel && c.time ? "" : " disabled"}>Done</button>` : ""}</span></div>`;
+      <div class="caltimes">${times.map((t) => { const cl = selD && clash(t); return `<button class="chip${cl ? " clash" : selD && isFree(selD, +t.slice(0, 2)) ? " free" : ""}${t === c.time ? " on" : ""}" type="button" data-tm="${t}"${selD ? "" : " disabled"}>${t}${cl ? " ✗" : ""}</button>`; }).join("")}</div>
+      ${selD && times.some(clash) ? `<p class="why" style="margin-top:4px">✗ = less than 2 hours from another viewing.</p>` : ""}
+      ${c.slots ? "" : `<label class="why" style="display:flex;gap:8px;align-items:center;margin-top:8px">Other time <input type="time" data-c="time" value="${esc(c.time)}"></label>`}` : ""}
+    <div class="calfoot">${c.slots ? `<button class="linkbtn" type="button" data-c="none">None of these work</button>` : `<button class="linkbtn" type="button" data-c="clear">Clear</button>`}<span class="btnrow"><button class="btn ghost small" type="button" data-c="cancel">Cancel</button>${c.dt ? `<button class="btn small" type="button" data-c="ok"${c.sel && c.time ? "" : " disabled"}>Done</button>` : ""}</span></div>`;
 }
-function calSet(val){
+function calSet(val, none = false){
   const i = cal.inp; i.value = val; $("calDlg").close();
+  if (none) i.dataset.none = "1"; else delete i.dataset.none;
   i.dispatchEvent(new Event("input", { bubbles: true })); i.dispatchEvent(new Event("change", { bubbles: true }));
   calify();
 }
@@ -2373,6 +2532,7 @@ $("calDlg").addEventListener("click", (e) => {
   if (b.dataset.tm){ c.time = b.dataset.tm; return calSet(`${c.sel}T${c.time}`); }
   if (k === "prev" || k === "next"){ const d = new Date(c.y, c.m + (k === "prev" ? -1 : 1), 1); c.y = d.getFullYear(); c.m = d.getMonth(); return drawCal(); }
   if (k === "clear") return calSet("");
+  if (k === "none") return calSet("", true);
   if (k === "cancel") return $("calDlg").close();
   if (k === "ok") return calSet(`${c.sel}T${c.time}`);
 });
@@ -2403,7 +2563,7 @@ $("freeGrid").onclick = async (e) => {
 async function boot(){
   $("sort").value = S.sort; drawSortDir();
   renderLoc(); renderActive(); applyView();
-  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions()]);
+  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions(), loadTodos(), loadPeople()]);
   showTab(location.hash === "#todo" ? "inbox" : ["find", "leads", "inbox", "more"].includes(S.tab) ? S.tab : "find");
   if (location.hash === "#todo") history.replaceState(null, "", location.pathname + location.search);
   load(true); headline(); loadTags(); loadCities(); loadInbox(); loadSites(); loadFree();
