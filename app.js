@@ -1049,6 +1049,7 @@ async function renderLeads(){
     </button>`;
   };
   $("leadsub").textContent = open.length ? plural(open.length, "place") : "";
+  $("lselbtn").hidden = !open.length && !lselecting;
   $("leads").innerHTML = (open.length || arch.length
     ? `<p class="lead-txt">Grouped by where each place stands, furthest along first. A place moves up by itself as its messages, viewing and deal go on.</p>`
       + coming
