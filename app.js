@@ -976,6 +976,7 @@ async function askClick(e){
     if (!$("v-inbox").hidden) todoTab = "send";
     askRedraw();
     const all = (r.saved || []).filter((s) => s.scope === "global").map((s) => s.text.replace(/\?$/, "").toLowerCase()), here = (r.saved || []).filter((s) => s.scope === "place").length;
+    if (r.closed || r.waiting) return toast(r.closed ? "Your answer means you don't meet their requirement, so a polite goodbye was sent and the place is closed. Undo is on the place page." : `Your answer means you don't meet their requirement. A polite goodbye is ready in Ready to send: ${r.reason ? r.reason.slice(0, 160) : "check it"}.`);
     toast(`Reply rewritten: check it, then send it.${all.length ? ` Saved for all places: ${all.join("; ")}.` : ""}${here ? ` ${plural(here, "answer")} kept for this place.` : ""}${r.also_filled ? ` Also filled in ${plural(r.also_filled, "other reply", "other replies")}.` : ""}`,
       r.undo?.length ? { label: "Undo saving", fn: async () => { await post("replydraft", { action: "undo_facts", facts: r.undo }); toast("Your fact sheet is back as it was. The reply stays as written."); } } : null);
   } catch (err){ b.disabled = false; b.textContent = "Rewrite reply"; fail(err); }
@@ -1488,7 +1489,7 @@ async function sharedClick(e){
   try {
     const r = await post("replydraft", { action: "answer_shared", key: card.dataset.skey, text: card.dataset.stext, ...(skip ? { skip: true } : { answer }) });
     await Promise.all([loadDrafts(), loadQuestions()]); renderAll(); if (lpId) lpRender();
-    toast(`${skip ? "Left out of every message" : "Saved for every place"}.${r.rewritten ? ` ${plural(r.rewritten, "message")} rewritten.` : ""}${r.failed?.length ? ` Couldn't rewrite: ${r.failed.join(", ")}.` : ""}`,
+    toast(`${skip ? "Left out of every message" : "Saved for every place"}.${r.rewritten ? ` ${plural(r.rewritten, "message")} rewritten.` : ""}${r.closed ? ` ${plural(r.closed, "place")} where this means you don't meet their requirement: a polite goodbye is sent or waiting in To do (see the report in More).` : ""}${r.failed?.length ? ` Couldn't rewrite: ${r.failed.join(", ")}.` : ""}`,
       r.undo?.length ? { label: "Undo saving", fn: async () => { await post("replydraft", { action: "undo_facts", facts: r.undo }); toast("Your fact sheet is back as it was. The messages stay as written."); } } : null, !!r.failed?.length);
   } catch (err){ st.textContent = "Couldn't save: " + err.message; card.querySelectorAll("button,input,textarea").forEach((x) => { x.disabled = false; }); }
   return true;
