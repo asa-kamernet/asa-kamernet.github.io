@@ -124,6 +124,10 @@ const needsVerdict = (id) => !isClosed(id) && stageOf(id) === "booked" && !!stOf
 const payToApprove = (id) => (deals[id]?.payments || []).some((p) => p.status === "proposed");
 const SENDING = ["queued", "sending", "kn_queued", "kn_sending"]; // kn_ = on its way through Kamernet (the PC helper)
 const isSending = (d) => SENDING.includes(d?.send_status);
+// v26 (30 Oct 2026): "unconfirmed" = Send was pressed (or may have been) but nothing proved it went out. It can never go out again by itself:
+// Send all skips it, and the helper looks in the chat. "Send again" only after the chat says the message isn't there.
+const isUnconf = (d) => d?.send_status === "unconfirmed";
+const notInChat = (d) => /^Checked: not in the chat/.test(d?.send_error || "");
 const draftReady = (id) => { const d = draftOf(id); return !!d && !isSending(d) && !isClosed(id); };
 // the Kamernet sender in Chrome on the PC asked for work in the 3 minutes before the health was loaded
 const knOnline = () => { const p = inbox?.health?.kn_sender_ping; return !!p && (inbox.at || Date.now()) - Date.parse(p) < 180000; };
@@ -1000,11 +1004,13 @@ function todoRows(id){
     let host = ""; try { host = t.link ? new URL(t.link).hostname.replace(/^www\./, "") : ""; } catch {}
     return `<div class="tdrow" data-tdid="${t.id}">
       <div class="tdtxt">${esc(t.text)}${t.phone ? ` · <b>${esc(t.phone)}</b>` : ""}</div>
-      ${waAsk(t) ? `<p class="why">Send for me sends them a short WhatsApp from your number asking when you can come and view it (you still pick the time).</p>`
+      ${waAsk(t) && waWent(id) ? `<p class="why">WhatsApp sent ${esc(ago(threads[id].last_at))}, no reply yet.</p>` : ""}
+      ${waAsk(t) && !waWent(id) ? `<p class="why">Send for me sends them a short WhatsApp from your number asking when you can come and view it (you still pick the time).</p>`
         : t.then ? `<p class="why">Then they want you to ${esc(lc(t.then))}: tap I did it and your reply says so.</p>` : ""}
-      <div class="btnrow">${waAsk(t) ? `<button class="btn small" type="button" data-td="wa">Send for me</button>` : ""}${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
+      <div class="btnrow">${waAsk(t) && !waWent(id) ? `<button class="btn small" type="button" data-td="wa">Send for me</button>` : ""}${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
     </div>`; }).join("")}</div>`;
 }
+const waWent = (id) => threads[id]?.last_channel === "whatsapp" && threads[id]?.last_dir === "out"; // their last line is your WhatsApp: it went out, no reply yet
 const waAsk = (t) => !!t.phone && /whats ?app/i.test(t.text || ""); // "Message the landlord on WhatsApp": autopilot's first WhatsApp (30 Oct 2026)
 const openTodos = () => todos.filter((t) => !isClosed(String(t.listing_id)));
 async function todoClick(e){
@@ -1367,7 +1373,10 @@ let todoTab = store.get("kn_todo_tab") || "needs";
 const waitTxt = (t) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : plural(Math.round(m / 1440), "day"); };
 const seenKey = (id) => `seen_v_${id}_${stOf(id).viewing_at}`;
 const vAt = (id) => Date.parse(stOf(id).viewing_at || 0) || 0;
-const quote = (s, n = 220) => s ? `“${esc(String(s).slice(0, n))}${String(s).length > n ? "…" : ""}”` : "(no text, for example a photo)";
+// v26 (30 Oct 2026): never cut a message off. A long one is folded: the start, then "Show all" opens the whole text.
+const quote = (s, n = 220) => !s ? "(no text, for example a photo)" : String(s).length > n
+  ? `<details class="qall"><summary><span class="qs">“${esc(String(s).slice(0, n))}…”</span> <span class="qm qmore">Show all</span><span class="qm qless">Show less</span></summary><div class="qfull">“${esc(String(s))}”</div></details>`
+  : `“${esc(String(s))}”`;
 const chanName = (ch, id) => ({ kamernet: "Kamernet", whatsapp: "WhatsApp", email: "email", site: `${siteName(cache[id]?.source)}'s contact form`, other: "" })[ch] || "";
 // can Send for me reach the landlord on this channel? (email needs their address, WhatsApp their number, an ad site its link)
 const canSendFor = (d, ch) => { const c = contacts[d.listing_id] || {}; return ch === "email" ? !!c.email : ch === "whatsapp" ? !!c.phone : ch === "site" ? !!cache[d.listing_id]?.url : ch === "kamernet"; };
@@ -1393,6 +1402,15 @@ function todoItem(id){
   if (viewNow) return viewCard();
   if (d){
     const wait = Date.parse(d.created_at) || now, ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, wq = questionsFor(d.id);
+    if (isUnconf(d)){
+      const wa = ch === "whatsapp", gone = wa && notInChat(d), sent = Date.parse(d.pressed_at || d.updated_at) || wait;
+      return card("needs", sent, wa ? (gone ? "Checked WhatsApp: it isn't in the chat" : "Check WhatsApp: Send was pressed, the helper is looking in the chat") : `Check ${esc(chanName(ch, id))}: Send was pressed but it isn't confirmed`,
+        `<div class="msg">${quote(text, 300)}</div><p class="why">${esc(d.send_error || "")} ${wa ? (gone ? "You can send it again." : "Your PC looks in the chat itself within a few minutes. Don't send it again before that.") : "Look in the conversation yourself first."}</p>`,
+        `${wa ? (gone ? `<button class="btn small" type="button" data-t="resend">Send again</button>` : "") : `<button class="btn small" type="button" data-t="wasent">It went out</button><button class="btn ghost small" type="button" data-t="resend">It didn't go: send again</button>`}${wa && !gone ? `<button class="btn ghost small" type="button" data-t="wasent">It went out</button>` : ""}`, true, "draft");
+    }
+    if (d.send_status === "kn_queued" && /^Waiting, nothing sent/.test(d.send_error || "")) return card("send", wait, `Held back, nothing sent: ${esc((d.send_error || "").replace(/^Waiting, nothing sent: /, ""))}`,
+      `<div class="msg">${esc(text)}</div><p class="why">The helper on your PC won't press Send when it can't read the chat first. It tries again by itself; the helper needs fixing (Claude does that in a chat).</p>`,
+      `<button class="btn ghost small" type="button" data-t="cancel">Cancel</button>`, false, "draft");
     if (isSending(d)) return card("send", wait, d.send_status === "kn_sending" ? `Sending on ${esc(chanName(ch, id))} now…` : d.send_status === "kn_queued" ? (knOnline() ? `Sending on ${esc(chanName(ch, id))} in a minute or two…` : `Waiting for your PC to send it on ${esc(chanName(ch, id))}`) : "Sending by email…",
       `<div class="msg">${esc(text)}</div>`, d.send_status === "kn_sending" ? "" : `<button class="btn ghost small" type="button" data-t="cancel">Cancel</button>`, false, "draft");
     if (asksPending(d)) return card("needs", Date.parse(threads[id]?.last_at) || wait, "They asked you something", askBody(d),
@@ -1406,7 +1424,7 @@ function todoItem(id){
     const send = canSendFor(d, ch), quiet = asksOf(d).length || extra; // "They ask: …" notes repeat the answer fields and the to-dos
     const warns = (d.warnings || []).filter((w) => !(quiet && /^They/.test(w)));
     return card("send", wait, d.send_status === "failed" ? `Couldn't send it: ${esc(d.send_error || "unknown error")}` : d.kind === "reply" ? "Your reply is ready" : "Your first message is ready",
-      `${d.kind === "reply" && threads[id]?.last_dir === "in" ? `<p class="why">They wrote: ${quote(threads[id].last_body, 160)}</p>` : ""}<!--td-->
+      `${d.kind === "reply" && threads[id]?.last_dir === "in" ? `<div class="why">They wrote: ${quote(threads[id].last_body, 160)}</div>` : ""}<!--td-->
       <div class="msg">${esc(text)}</div>
       ${d.draft_en ? `<details class="en"><summary>English translation (only for you, not sent)</summary><div class="entext">${esc(d.draft_en)}</div></details>` : ""}
       ${asksOf(d).length ? `<details class="yans" open><summary>Your answers (${asksOf(d).length})</summary><ul>${asksOf(d).map((a) => `<li><b>${esc(a.text)}</b> ${a.skipped ? "<i>left out</i>" : esc(askShow(a, a.answer))}</li>`).join("")}</ul><button class="linkbtn" type="button" data-t="asksback">‹ Change my answers</button></details>` : ""}
@@ -1624,6 +1642,13 @@ async function todoAct(b){
     if (t === "edit") return openListing(Number(id), "draft");
     if (t === "send") return void await sendDraft(d, b.dataset.ch, draftEdits[d.id] ?? d.draft);
     if (t === "copy") return copyOpen(d, b.dataset.ch, draftEdits[d.id] ?? d.draft, lpId === id ? $("dText") : null);
+    if (t === "resend" || t === "wasent"){
+      if (t === "resend" && !notInChat(d) && d.send_via === "whatsapp") return toast("Wait for the chat check first.", null, true);
+      if (!await confirmBox({ title: t === "wasent" ? "It went out?" : "Send it again?", ok: t === "wasent" ? "Yes, it went out" : "Send again", body: t === "wasent" ? "<p>The message is marked as sent.</p>" : "<p>Only do this if you looked and it is not there: otherwise they get it twice.</p>" })) return;
+      await post("kn-send", { action: t === "wasent" ? "mark_sent" : "resend", application_id: d.id });
+      window.postMessage({ type: "kn-sender-poke" }, location.origin);
+      await Promise.all([loadDrafts(), loadThreads()]); lpRender(); renderAll(); watchSending(); return toast(t === "wasent" ? "Marked as sent." : "Queued again.");
+    }
     if (t === "cancel"){
       await (d.send_status.startsWith("kn_") ? post("kn-send", { action: "cancel", application_id: d.id }) : post("deal", { action: "unqueue", application_id: d.id }));
       await loadDrafts(); lpRender(); renderAll(); return toast("Cancelled. Nothing was sent.");
@@ -1673,7 +1698,7 @@ async function todoAct(b){
 function sendAllPlan(ds){
   const go = [], skip = [];
   for (const d of ds){
-    if (isSending(d)) continue;
+    if (isSending(d) || isUnconf(d)) continue; // an unconfirmed send is never sent again by "Send all"
     if (waitsOnQ(d)){ skip.push([d, "waiting on a question in To do"]); continue; }
     if (asksPending(d)){ skip.push([d, "waiting on your answers in To do"]); continue; }
     if ((d.attach || []).length){ skip.push([d, "it has files attached: send it on its own card"]); continue; }
@@ -2023,8 +2048,9 @@ function draftSection(id){
     if (first || !threads[id]) return `<h3>Your message</h3><p class="why">Claude writes a short first message in your style, using the ad and your facts. You check it first; nothing goes out until you tap Send for me (or send it yourself).</p><button class="btn" type="button" data-a="write">Write my first message</button>`;
     return `<h3>Your message</h3><p class="why">${needsReply(id) ? "They wrote last. Claude can write a reply for you to check." : threads[id] ? "The last message is yours." : "No messages yet. Claude can write one for you to check."}</p><button class="btn${needsReply(id) ? "" : " ghost"}" type="button" data-a="reply">Write a ${needsReply(id) ? "reply" : "follow-up"}</button>`;
   }
-  const ch = chanOf(d), sending = isSending(d);
-  const send = d.send_status === "kn_sending" ? `<div class="btnrow"><b>Sending on ${esc(chanName(ch, id))} now…</b></div><p class="why">Chrome on your PC is sending it. It shows in the conversation when it's out.</p>`
+  const ch = chanOf(d), sending = isSending(d) || isUnconf(d);
+  const send = isUnconf(d) ? `<div class="btnrow"><b>${ch === "whatsapp" ? (notInChat(d) ? "Checked WhatsApp: it isn't in the chat" : "Check WhatsApp: Send was pressed") : "Send was pressed but isn't confirmed"}</b></div><p class="why">${esc(d.send_error || "")} ${ch === "whatsapp" ? (notInChat(d) ? "" : "Your PC looks in the chat itself within a few minutes. Don't send it again before that.") : "Look in the conversation first."}</p><div class="btnrow">${ch === "whatsapp" ? (notInChat(d) ? `<button class="btn" type="button" data-d="resend">Send again</button>` : "") : `<button class="btn" type="button" data-d="wasent">It went out</button><button class="btn ghost" type="button" data-d="resend">It didn't go: send again</button>`}</div>`
+    : d.send_status === "kn_sending" ? `<div class="btnrow"><b>Sending on ${esc(chanName(ch, id))} now…</b></div><p class="why">Chrome on your PC is sending it. It shows in the conversation when it's out.</p>`
     : d.send_status === "kn_queued" ? `<div class="btnrow"><b>Waiting for your PC to send it on ${esc(chanName(ch, id))}…</b><button class="btn ghost small" type="button" data-d="unqueue">Cancel</button></div><p class="why">${knOnline() ? "Your PC is on: it goes out within a minute or two." : "Your PC seems to be off or Chrome is closed. It goes out as soon as it's back (it waits up to 3 days). In a hurry? Cancel, then use Copy and open."}</p>`
     : sending ? `<div class="btnrow"><b>Sending by email to ${esc(c.email || "the landlord")}…</b><button class="btn ghost small" type="button" data-d="unqueue">Cancel</button></div><p class="why">It goes out from your Gmail within a minute, then shows in the conversation.</p>`
     : `<div class="btnrow">${canSendFor(d, ch) ? `<button class="btn" type="button" data-d="sendfor" data-ch="${ch}">Send for me${ch !== "email" && !knOnline() ? " (PC off)" : ""}</button>` : ""}<button class="btn${canSendFor(d, ch) ? " ghost" : ""}" type="button" data-d="go" data-ch="${ch}">${ch === "other" || ch === "whatsapp" && !c.phone ? "Copy it" : `Copy and open ${esc(ch === "site" ? siteName(r.source) : chanName(ch, id))}`}</button></div><p class="why">${sendWhy(ch, id)}</p>`;
@@ -2245,6 +2271,11 @@ async function draftAction(b){
     else { $("dText").select(); toast("The text is selected: copy it."); }
   } else if (act === "sendfor"){
     if (d) await sendDraft(d, b.dataset.ch, text);
+  } else if (act === "resend" || act === "wasent"){
+    if (!await confirmBox({ title: act === "wasent" ? "It went out?" : "Send it again?", ok: act === "wasent" ? "Yes, it went out" : "Send again", body: act === "wasent" ? "<p>The message is marked as sent.</p>" : "<p>Only do this if you looked and it is not there: otherwise they get it twice.</p>" })) return;
+    await post("kn-send", { action: act === "wasent" ? "mark_sent" : "resend", application_id: aid });
+    window.postMessage({ type: "kn-sender-poke" }, location.origin);
+    await Promise.all([loadDrafts(), loadThreads(), loadThread(id)]); lpRender(); renderAll(); watchSending(); toast(act === "wasent" ? "Marked as sent." : "Queued again.");
   } else if (act === "unqueue"){
     if (d?.send_status?.startsWith("kn_")) await post("kn-send", { action: "cancel", application_id: aid });
     else await post("deal", { action: "unqueue", application_id: aid });
@@ -2270,8 +2301,8 @@ async function draftAction(b){
 $("lpBody").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "dNote"){ e.preventDefault(); $("lpBody").querySelector('[data-d="redo"]')?.click(); } });
 function watchSending(){ // while a message is going out, check again so it shows as sent
   clearTimeout(watchSending.t);
-  if (!unsent().some(isSending)) return;
-  watchSending.t = setTimeout(async () => { await Promise.all([loadDrafts(), loadThreads(), loadStatuses()]); if (lpId){ await loadThread(lpId); lpRender(); } renderAll(); watchSending(); }, 20000);
+  if (!unsent().some((d) => isSending(d) || isUnconf(d))) return;
+  watchSending.t = setTimeout(async () => { await Promise.all([loadDrafts(), loadThreads(), loadStatuses()]); if (lpId){ await loadThread(lpId); lpRender(); } renderAll(); watchSending(); }, unsent().some(isSending) ? 2000 : 100000);
 }
 
 // ---- the deal: from "they offered it" to signed and registered. Nothing here pays or signs for you. ----
@@ -2540,7 +2571,18 @@ async function loadInbox(){
 }
 // On the PC with the "Kamernet Live sender" helper installed, the helper marks this page "needs-token". The site (unlocked with
 // the passcode) then gets the helper its own key from function kn-send and hands it over inside this browser: nothing to paste.
+// The PC helper older than 3.0 (it presses Send without looking in the chat first) is reloaded ONCE per page load, from the folder on disk
+// that already holds 3.0. If the reload message doesn't take, the line in More says what to tap (chrome://extensions > Reload).
+function knHelperReload(){
+  try {
+    const v = parseFloat(document.documentElement.dataset.knSenderV || "0");
+    if (!v || v >= 3 || sessionStorage.getItem("kn_helper_reload")) return;
+    sessionStorage.setItem("kn_helper_reload", String(Date.now()));
+    window.postMessage({ type: "kn-sender-reload" }, location.origin);
+  } catch { /* no helper here (a phone) */ }
+}
 async function knEnroll(){
+  knHelperReload();
   if (document.documentElement.dataset.knSender !== "needs-token" || knEnroll.busy) return;
   knEnroll.busy = true;
   try {
@@ -2566,6 +2608,9 @@ async function drawHealth(){
     Number(h.gmail_version || 0) >= 2 && gmailOk() ? line(h.failed_emails ? "bad" : "ok", `Send for me (email): ready${h.queued_emails ? ` · ${h.queued_emails} going out` : ""}${h.failed_emails ? ` · ${h.failed_emails} failed (open them in To do)` : ""}`) : line("warn", `Send for me (email): ${h.gmail_ping ? "needs the newer Gmail connection (Claude updates it in a chat)" : notYet}`),
     !h.kn_sender_ping ? line("warn", "Send for me (Kamernet): not set up yet (Claude installs the helper in Chrome on your PC, in a chat)")
       : line(h.kn_failed ? "bad" : knOnline() ? "ok" : "warn", `Send for me (Kamernet): ${knOnline() ? "ready, your PC is on" : `your PC is off or Chrome is closed (last seen ${ago(h.kn_sender_ping)}); messages wait until it's back`}${h.kn_queued ? ` · ${h.kn_queued} going out` : ""}${h.kn_failed ? ` · ${h.kn_failed} failed (open them in To do)` : ""}${h.kn_sender_last_sent ? ` · last sent ${ago(h.kn_sender_last_sent)}` : ""}`),
+    h.kn_blocked ? line("bad", `Send for me held back: ${esc(String(h.kn_blocked).replace(/^\S+\s/, "").slice(0, 200))}. Nothing was sent; the helper needs fixing (Claude does that in a chat).`) : null,
+    Number(h.kn_unconfirmed || 0) ? line("warn", `${plural(Number(h.kn_unconfirmed), "message")} pressed but not confirmed yet: the helper is checking the chat (see To do)`) : null,
+    h.kn_sender_ping && Number(String(h.kn_sender_version || "0").split(".")[0]) < 3 ? line("warn", `The PC helper is still version ${esc(String(h.kn_sender_version || "?"))}. Version 3 is on your PC: open chrome://extensions in Chrome and tap Reload on Kamernet Live sender (one tap).`) : null,
     // since 25 Oct 2026 the Chrome helper reads WhatsApp Web on the PC (the phone forwarder never worked)
     h.wa_read && Date.now() - Date.parse(h.wa_read) < 10 * 60000
       ? line(h.wa_read_error ? "bad" : "ok", h.wa_read_error ? `WhatsApp from landlords: your PC can't read WhatsApp Web (${esc(String(h.wa_read_error).slice(0, 120))}). Open web.whatsapp.com in Chrome on your PC and scan the QR code with your phone if it asks.`
@@ -2581,6 +2626,7 @@ async function drawHealth(){
       ? line(h.kn_read_error ? "bad" : "ok", h.kn_read_error ? `Kamernet chat log: your PC can't read it (${esc(String(h.kn_read_error).slice(0, 120))}). Open kamernet.nl in Chrome on your PC and log in if it asks.`
         : `Kamernet chat log: read from Kamernet on your PC, checked ${ago(h.kn_read)}. Alerts still come from Gmail.`)
       : line("warn", `Kamernet chat log: your PC is off or Chrome is closed (last read ${ago(h.kn_read)}); it catches up when it's back`),
+    h.kn_backfill && !/^(\d+)\/\1 /.test(String(h.kn_backfill)) ? line("warn", `Going through your older Kamernet conversations: ${esc(String(h.kn_backfill).split(" at ")[0])} done (the PC does a few every 2 minutes while Chrome is open)`) : h.kn_backfill ? line("ok", `Older Kamernet conversations: all ${esc(String(h.kn_backfill).split("/")[0])} read`) : null,
     inbox.push_devices ? line("ok", `Alerts on ${plural(inbox.push_devices, "device")}${mine ? " (this one too)" : " (not this one)"}${h.last_push ? ` · last alert ${ago(h.last_push)}` : ""}`) : line("warn", "Alerts: no phone has them on yet"),
     h.remind_last_run ? line(fresh(h.remind_last_run, 30) ? "ok" : "bad", `Viewing and payment reminders: checked ${ago(h.remind_last_run)}`) : line("warn", "Viewing and payment reminders: not run yet"),
     h.ask_last_error ? line("bad", `Tell Claude: last error ${esc(String(h.ask_last_error).slice(0, 160))}`) : line("ok", `Tell Claude: working${h.ask_last_run ? " · last request " + ago(String(h.ask_last_run).slice(0, 24)) : ""}`),

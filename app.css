@@ -485,3 +485,9 @@ body.selecting .ssrow{display:none}
 .qshared .money{display:flex;align-items:center;gap:6px;flex:1}
 .ibc .msg{max-height:140px;overflow:auto}
 .tlist > .tcard > .qcard{margin:0;border:0;padding:0}
+
+/* v26: long messages fold with "Show all" */
+.qall summary{cursor:pointer;list-style:none}.qall summary::-webkit-details-marker{display:none}
+.qall .qm{color:var(--accent,#2563eb);font-weight:600;font-size:.9em}.qall .qless{display:none}
+.qall[open] .qs,.qall[open] .qmore{display:none}.qall[open] .qless{display:inline}
+.qall .qfull{white-space:pre-wrap;word-break:break-word;margin-top:4px}
