@@ -925,26 +925,30 @@ function askRow(d, a, i, claude){
   return `<div class="askrow" data-i="${i}"><b>${esc(a.text)}</b>${askInput(d, a, i)}
     <div class="askfoot"><button class="linkbtn" type="button" data-ak="scope">${scTxt.replace(/^./, (c) => c.toUpperCase())} · switch</button>${claude ? `<button class="linkbtn" type="button" data-ak="done">Done</button>` : `<button class="linkbtn" type="button" data-ak="skip">Skip</button>`}</div></div>`;
 }
+// a question about Asa himself that's still open: asked ONCE, at the top of To do (Asa, 30 Oct 2026), never on each place's card
+const SHARED_NOT = ["slot", "datetime", "people"];
+const isShared = (a) => a.scope === "global" && !a.answer && !a.skipped && !SHARED_NOT.includes(a.kind);
 function askBody(d){
-  const as = asksOf(d), id = String(d.listing_id), left = asksLeft(d);
-  const idx = as.map((a, i) => [a, i]), mine = idx.filter(([a]) => a.answer && !a.skipped), open = idx.filter(([a]) => !(a.answer && !a.skipped));
-  const td = todos.filter((t) => String(t.listing_id) === id);
+  const as = asksOf(d), id = String(d.listing_id);
+  const idx = as.map((a, i) => [a, i]), mine = idx.filter(([a]) => a.answer && !a.skipped);
+  const shared = askEd[d.id]?.reopen ? [] : idx.filter(([a]) => isShared(a)), open = idx.filter(([a]) => !(a.answer && !a.skipped) && !shared.some(([s]) => s === a));
+  const left = asksLeft(d) - shared.length;
   return `<div class="asks" data-aid="${d.id}">
-    ${threads[id]?.last_dir === "in" ? `<div class="msg">${quote(threads[id].last_body, 600)}</div>` : ""}
-    <p class="why"><b>They ask ${plural(as.length, "thing")}</b>: Claude answered ${mine.length}, ${open.length} ${open.length === 1 ? "needs" : "need"} you.</p>
+    ${threads[id]?.last_dir === "in" ? `<div class="msg">${quote(threads[id].last_body, 600)}</div>` : ""}<!--td-->
+    <p class="why"><b>They ask ${plural(as.length, "thing")}</b>: Claude answered ${mine.length}, ${open.length + shared.length} ${open.length + shared.length === 1 ? "needs" : "need"} you.</p>
     ${mine.length ? `<div class="agroup done"><div class="ghead"><b>Claude answered these</b><span class="why">Check, change if needed</span></div>${mine.map(([a, i]) => askRow(d, a, i, true)).join("")}</div>` : ""}
+    ${shared.length ? `<div class="agroup open"><div class="ghead"><b>About you</b><span class="why">Answer once, under Questions about you at the top</span></div>${shared.map(([a]) => `<div class="askrow"><b>${esc(a.text)}</b></div>`).join("")}<p class="why">This reply is rewritten by itself once you answer${open.length ? " and fill in the rest below" : ""}.</p></div>` : ""}
     ${open.length ? `<div class="agroup open"><div class="ghead"><b>Only you can answer</b><span class="why aleft">${left ? `${left} left` : "All done"}</span></div>${open.map(([a, i]) => askRow(d, a, i, false)).join("")}</div>` : ""}
-    ${td.length ? `<p class="why">They also ask you to ${td.map((t) => esc(t.text.charAt(0).toLowerCase() + t.text.slice(1))).join(" and ")}: that's in Other, not in this reply.</p>` : ""}
-    <div class="btnrow"><button class="btn small" type="button" data-ak="go"${left ? " disabled" : ""}>Rewrite reply</button>${askEd[d.id]?.reopen ? `<button class="btn ghost small" type="button" data-ak="keep">Keep the reply as it is</button>` : ""}</div>
-    <p class="why aleft2"${left ? "" : " hidden"}>Fill in or skip the open ones first.</p>
+    ${open.length || !shared.length ? `<div class="btnrow"><button class="btn small" type="button" data-ak="go"${left || shared.length ? " disabled" : ""}>Rewrite reply</button>${askEd[d.id]?.reopen ? `<button class="btn ghost small" type="button" data-ak="keep">Keep the reply as it is</button>` : ""}</div>
+    <p class="why aleft2"${left || shared.length ? "" : " hidden"}>${shared.length ? "Answer the question about you at the top too." : "Fill in or skip the open ones first."}</p>` : ""}
   </div>`;
 }
 const askRedraw = () => { renderAll(); if (lpId) lpRender(); };
 function askRefresh(box, d){
-  const left = asksLeft(d), go = box.querySelector('[data-ak="go"]');
-  if (go) go.disabled = !!left;
+  const sh = askEd[d.id]?.reopen ? 0 : asksOf(d).filter(isShared).length, left = asksLeft(d) - sh, go = box.querySelector('[data-ak="go"]');
+  if (go) go.disabled = !!(left || sh);
   const l = box.querySelector(".aleft"); if (l) l.textContent = left ? `${left} left` : "All done";
-  const l2 = box.querySelector(".aleft2"); if (l2) l2.hidden = !left;
+  const l2 = box.querySelector(".aleft2"); if (l2) l2.hidden = !(left || sh);
 }
 // one handler for the answer fields, in To do and on the place page; true when the click was inside them
 async function askClick(e){
@@ -986,18 +990,19 @@ function askTyped(e){
 }
 document.addEventListener("input", askTyped);
 document.addEventListener("change", askTyped);
-// things a landlord asked you to DO (register on their website, call them): their own card in To do > Other, never in the reply
-function todoCard(t){
-  const r = cache[t.listing_id] || {};
-  let host = ""; try { host = t.link ? new URL(t.link).hostname.replace(/^www\./, "") : ""; } catch {}
-  return `<article class="tcard" data-tdid="${t.id}">
-    <button class="ttl" type="button" data-tdopen="${t.listing_id}">${esc(r.street || "A place")}${r.city ? `, ${esc(r.city)}` : ""} <span aria-hidden="true">›</span></button>
-    <div class="waitline">They asked ${esc(when(t.created_at))}</div>
-    <div class="twhy">${esc(t.text)}</div>
-    ${t.phone ? `<p class="why">Their number: <b>${esc(t.phone)}</b></p>` : ""}
-    <p class="why">${waAsk(t) ? "Send for me sends them a short WhatsApp from your number asking when you can come and view it (you still pick the time). It's also done by itself when a landlord asks this from now on." : "Not part of your reply: do it yourself, then tap I did it."}</p>
-    <div class="btnrow">${waAsk(t) ? `<button class="btn small" type="button" data-td="wa">Send for me</button>` : ""}${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
-  </article>`;
+// things a landlord asked you to DO (register on their website, call them): on that place's own card, "First, do this", never in
+// the reply (Asa, 30 Oct 2026; was a separate card in To do > Other). One per action; "then" = what to tell them once it's done.
+function todoRows(id){
+  const ts = openTodos().filter((t) => String(t.listing_id) === String(id)); if (!ts.length) return "";
+  const lc = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+  return `<div class="tdo"><b>First, do this</b>${ts.map((t) => {
+    let host = ""; try { host = t.link ? new URL(t.link).hostname.replace(/^www\./, "") : ""; } catch {}
+    return `<div class="tdrow" data-tdid="${t.id}">
+      <div class="tdtxt">${esc(t.text)}${t.phone ? ` · <b>${esc(t.phone)}</b>` : ""}</div>
+      ${waAsk(t) ? `<p class="why">Send for me sends them a short WhatsApp from your number asking when you can come and view it (you still pick the time).</p>`
+        : t.then ? `<p class="why">Then they want you to ${esc(lc(t.then))}: tap I did it and your reply says so.</p>` : ""}
+      <div class="btnrow">${waAsk(t) ? `<button class="btn small" type="button" data-td="wa">Send for me</button>` : ""}${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
+    </div>`; }).join("")}</div>`;
 }
 const waAsk = (t) => !!t.phone && /whats ?app/i.test(t.text || ""); // "Message the landlord on WhatsApp": autopilot's first WhatsApp (30 Oct 2026)
 const openTodos = () => todos.filter((t) => !isClosed(String(t.listing_id)));
@@ -1019,11 +1024,17 @@ async function todoClick(e){
     } catch (err){ fail(err); }
     return true;
   }
+  const t = todos.find((x) => x.id === id);
+  if (status === "done" && t?.then){ b.disabled = true; b.textContent = "Writing… (about 10 seconds)"; }
   try {
-    await post("replydraft", { action: "todo_set", id, status });
-    todos = todos.filter((t) => t.id !== id); renderAll();
-    toast(status === "done" ? "Noted: done." : "Noted: you're not doing it.", { label: "Undo", fn: async () => { await post("replydraft", { action: "todo_set", id, status: "open" }); await loadTodos(); renderAll(); } });
-  } catch (err){ fail(err); }
+    const r = await post("replydraft", { action: "todo_set", id, status });
+    todos = todos.filter((x) => x.id !== id);
+    if (r.told) await loadDrafts();
+    renderAll(); if (lpId) lpRender();
+    toast(r.told === "rewritten" ? "Done. Your reply now says so: check it, then send it." : r.told === "written" ? "Done. A short message telling them is ready: check it, then send it."
+      : status === "done" ? `Noted: done.${r.error ? ` Couldn't write the message telling them: ${aiErr(r.error)}` : ""}` : "Noted: you're not doing it.",
+      { label: "Undo", fn: async () => { await post("replydraft", { action: "todo_set", id, status: "open" }); await loadTodos(); renderAll(); if (lpId) lpRender(); } }, !!r.error);
+  } catch (err){ fail(err); renderAll(); }
   return true;
 }
 // ---- People who may move in with you (Asa, 26 Oct 2026): mini profiles, picked per place for "Who comes along?" ----
@@ -1345,10 +1356,13 @@ async function writeReplies(ids, follow){
 // =====================================================================================
 // TO DO (tab "inbox"): everything waiting on Asa, in the order to do it
 // =====================================================================================
-// One card per place (Asa, 28 Oct 2026), in sub-tabs Send / Answer / Viewings / Deal / Other. A sub-tab shows only when it has
-// cards; cards are sorted by how long they have waited, longest first. The place page shows the same card as its "Next step".
-const TODO_TABS = [["send", "Send"], ["answer", "Answer"], ["view", "Viewings"], ["deal", "Deal"], ["other", "Other"]];
-let todoTab = store.get("kn_todo_tab") || "send";
+// Two piles (Asa, 30 Oct 2026; was sub-tabs Send / Answer / Viewings / Deal / Other): "Needs you" = everything to answer, do or
+// decide; "Ready to send" = replies that only need a tap (Send all sends exactly these). Still ONE card per place: what they wrote,
+// "First, do this" (things they asked you to do), questions about that place, then the reply. Questions about you (student, work,
+// income...) are asked once, at the top, for every place that asks them. Claude's questions about your Tell Claude requests and
+// messages it couldn't match to a place have their own sections. Cards wait longest first; a viewing today or tomorrow is pinned on top.
+const TODO_TABS = [["needs", "Needs you"], ["send", "Ready to send"]];
+let todoTab = store.get("kn_todo_tab") || "needs";
 const waitTxt = (t) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : plural(Math.round(m / 1440), "day"); };
 const seenKey = (id) => `seen_v_${id}_${stOf(id).viewing_at}`;
 const vAt = (id) => Date.parse(stOf(id).viewing_at || 0) || 0;
@@ -1357,92 +1371,199 @@ const chanName = (ch, id) => ({ kamernet: "Kamernet", whatsapp: "WhatsApp", emai
 // can Send for me reach the landlord on this channel? (email needs their address, WhatsApp their number, an ad site its link)
 const canSendFor = (d, ch) => { const c = contacts[d.listing_id] || {}; return ch === "email" ? !!c.email : ch === "whatsapp" ? !!c.phone : ch === "site" ? !!cache[d.listing_id]?.url : ch === "kamernet"; };
 const globalQs = () => questions.filter((q) => !(q.places || []).length);
-// the one thing waiting on Asa for this place, or null
+const closeQ = (id) => questions.find((q) => q.key === `decide_close_${id}`); // "Looks like a no. Close it?" sits on that place's card
+// the one card for this place, or null
 function todoItem(id){
   id = String(id);
   if (isClosed(id)) return null;
   const r = cache[id] || { street: "A listing", city: "" }, now = Date.now(), d = draftOf(id), dl = deals[id], va = vAt(id);
-  const card = (tab, wait, why, body, btns, count = true, sec = "") => ({ id, tab, wait, count, sec, why, html: `<article class="tcard" data-id="${id}" data-sec="${sec}">
+  const cq = closeQ(id), extra = (cq ? questionCard(cq) : "") + todoRows(id);
+  // anything still to do or decide keeps the place in Needs you; its spot in the card is <!--td-->, right after what they wrote
+  const card = (tab, wait, why, body, btns, count = true, sec = "", pin = false) => ({ id, tab: tab === "send" && !extra ? "send" : "needs", wait, count: count || !!extra, sec, why, pin, html: `<article class="tcard" data-id="${id}" data-sec="${sec}">
       <button class="ttl" type="button" data-t="open">${esc(r.street)}${r.city ? `, ${esc(r.city)}` : ""} <span aria-hidden="true">›</span></button>
       <div class="waitline">Waiting ${waitTxt(wait)}</div>
-      <div class="twhy">${why}</div>${body}
+      <div class="twhy">${why}</div>${body.includes("<!--td-->") ? body.replace("<!--td-->", extra) : extra + body}
       ${btns ? `<div class="btnrow">${btns}</div>` : ""}</article>` });
   const viewNow = stageOf(id) === "booked" && va && va > now - 3600000 && va < now + 3 * 3600000;
   const viewSoon = stageOf(id) === "booked" && va > now && va < now + 86400000 && !store.get(seenKey(id));
-  const viewCard = () => card("view", Math.min(now, va), `Viewing ${new Date(va).toDateString() === new Date().toDateString() ? "today" : "tomorrow"} at ${new Date(va).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`,
+  const viewCard = () => card("needs", Math.min(now, va), `Viewing ${new Date(va).toDateString() === new Date().toDateString() ? "today" : "tomorrow"} at ${new Date(va).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`,
     `<div class="addr">${esc([r.street, [r.pc, r.city].filter(Boolean).join(" ")].filter(Boolean).join(", "))}</div><a class="linkbtn" href="${esc(mapUrl(r))}" target="_blank" rel="noopener">Open in Maps ›</a>`,
-    `<button class="btn ghost small" type="button" data-t="late">I'm running late</button><button class="btn ghost small" type="button" data-t="seen">Got it</button>`, va > now, "status");
+    `<button class="btn ghost small" type="button" data-t="late">I'm running late</button><button class="btn ghost small" type="button" data-t="seen">Got it</button>`, va > now, "status", true);
   if (viewNow) return viewCard();
   if (d){
     const wait = Date.parse(d.created_at) || now, ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, wq = questionsFor(d.id);
     if (isSending(d)) return card("send", wait, d.send_status === "kn_sending" ? `Sending on ${esc(chanName(ch, id))} now…` : d.send_status === "kn_queued" ? (knOnline() ? `Sending on ${esc(chanName(ch, id))} in a minute or two…` : `Waiting for your PC to send it on ${esc(chanName(ch, id))}`) : "Sending by email…",
       `<div class="msg">${esc(text)}</div>`, d.send_status === "kn_sending" ? "" : `<button class="btn ghost small" type="button" data-t="cancel">Cancel</button>`, false, "draft");
-    if (asksPending(d)) return card("answer", Date.parse(threads[id]?.last_at) || wait, "They asked you something", askBody(d),
+    if (asksPending(d)) return card("needs", Date.parse(threads[id]?.last_at) || wait, "They asked you something", askBody(d),
       `<button class="btn ghost small" type="button" data-t="noanswer">Nothing to answer</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "draft");
-    if (wq.length) return card("answer", wait, `Claude needs ${wq.length > 1 ? "answers" : "an answer"} before your ${d.kind === "reply" ? "reply" : "first message"} can go`, wq.map(questionCard).join(""), `<button class="btn ghost small" type="button" data-t="edit">See the message</button>`, true, "draft");
-    const send = canSendFor(d, ch);
+    if (wq.length){ // first messages wait on kn_questions: the ones about this place here, the ones about you at the top
+      const here = wq.filter((q) => q.scope === "place" || q.kind === "people"), top = wq.filter((q) => !here.includes(q));
+      return card("needs", wait, `Claude needs ${wq.length > 1 ? "answers" : "an answer"} before your ${d.kind === "reply" ? "reply" : "first message"} can go`,
+        here.map(questionCard).join("") + (top.length ? `<p class="why">Waiting on your answer under Questions about you at the top: ${top.map((q) => `“${esc(q.text)}”`).join(", ")}. It's rewritten by itself once you answer.</p>` : ""),
+        `<button class="btn ghost small" type="button" data-t="edit">See the message</button>`, true, "draft");
+    }
+    const send = canSendFor(d, ch), quiet = asksOf(d).length || extra; // "They ask: …" notes repeat the answer fields and the to-dos
+    const warns = (d.warnings || []).filter((w) => !(quiet && /^They/.test(w)));
     return card("send", wait, d.send_status === "failed" ? `Couldn't send it: ${esc(d.send_error || "unknown error")}` : d.kind === "reply" ? "Your reply is ready" : "Your first message is ready",
-      `${d.kind === "reply" && threads[id]?.last_dir === "in" ? `<p class="why">They wrote: ${quote(threads[id].last_body, 160)}</p>` : ""}
+      `${d.kind === "reply" && threads[id]?.last_dir === "in" ? `<p class="why">They wrote: ${quote(threads[id].last_body, 160)}</p>` : ""}<!--td-->
       <div class="msg">${esc(text)}</div>
       ${d.draft_en ? `<details class="en"><summary>English translation (only for you, not sent)</summary><div class="entext">${esc(d.draft_en)}</div></details>` : ""}
-      ${asksOf(d).length ? `<details class="yans" open><summary>Your answers (${asksOf(d).length})</summary><ul>${asksOf(d).map((a) => `<li><b>${esc(a.text)}</b> ${a.skipped ? "<i>skipped</i>" : esc(askShow(a, a.answer))}</li>`).join("")}</ul><button class="linkbtn" type="button" data-t="asksback">‹ Change my answers</button></details>` : ""}
-      ${(d.warnings || []).filter((w) => !asksOf(d).length || !/^They/.test(w)).length ? `<ul class="warns">${d.warnings.filter((w) => !asksOf(d).length || !/^They/.test(w)).map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${asksOf(d).length ? `<details class="yans" open><summary>Your answers (${asksOf(d).length})</summary><ul>${asksOf(d).map((a) => `<li><b>${esc(a.text)}</b> ${a.skipped ? "<i>left out</i>" : esc(askShow(a, a.answer))}</li>`).join("")}</ul><button class="linkbtn" type="button" data-t="asksback">‹ Change my answers</button></details>` : ""}
+      ${warns.length ? `<ul class="warns">${warns.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
       ${tellOpen[d.id] ? `<div class="tellbox"><textarea class="telltxt" rows="2" placeholder="e.g. shorter, and ask if bills are included" aria-label="What should Claude change?"></textarea><div class="btnrow"><button class="btn small" type="button" data-t="tellgo">Rewrite</button><button class="btn ghost small" type="button" data-t="tellx">Cancel</button></div></div>` : ""}
       <p class="why">${ch === "other" ? "No way to reach the landlord saved yet: tap Edit and add their email or phone." : `Goes through ${esc(chanName(ch, id))}${send && ch !== "email" ? `, from Chrome on your PC${knOnline() ? "" : " (it seems off now; it waits for it)"}` : ""}.`}</p>`,
       `${send ? `<button class="btn small" type="button" data-t="send" data-ch="${ch}">Send for me</button>` : ""}<button class="btn ghost small" type="button" data-t="copy" data-ch="${ch}">Copy and open</button><button class="btn ghost small" type="button" data-t="tell">Tell Claude what to change</button><button class="btn ghost small" type="button" data-t="edit">Edit</button>${d.kind === "reply" ? "" : `<button class="btn ghost small danger" type="button" data-t="notint">Not interested</button>`}`, true, "draft");
   }
-  if (needsVerdict(id)) return card("view", va, "How was the viewing?", `<p class="why">You viewed it ${esc(dayTxt(va))}.</p>`,
+  if (needsVerdict(id)) return card("needs", va, "How was the viewing?", `<p class="why">You viewed it ${esc(dayTxt(va))}.</p>`,
     `<button class="btn small" type="button" data-t="v" data-v="want">Want it</button><button class="btn ghost small" type="button" data-t="v" data-v="maybe">Maybe</button><button class="btn ghost small danger" type="button" data-t="v" data-v="no">Not for me</button>`, true, "status");
-  if (needsReply(id)) return card("answer", Date.parse(threads[id].last_at) || now, "They wrote to you", `<div class="msg">${quote(threads[id].last_body, 400)}</div>`,
+  if (needsReply(id)) return card("needs", Date.parse(threads[id].last_at) || now, "They wrote to you", `<div class="msg">${quote(threads[id].last_body, 400)}</div><!--td-->`,
     `<button class="btn small" type="button" data-t="reply">See what they ask</button><button class="btn ghost small" type="button" data-t="noanswer">Nothing to answer</button><button class="btn ghost small" type="button" data-t="open" data-sec="conv">Read it all</button>`, true, "conv");
   const p = (dl?.payments || []).find((x) => x.status === "proposed");
   if (p){
     const w = payWarnings(id, dl, p);
-    return card("deal", Date.parse(dl.updated_at) || now, `Approve ${eur(p.amount)} ${esc(p.what)}${p.to_name ? ` to ${esc(p.to_name)}` : ""}?`,
+    return card("needs", Date.parse(dl.updated_at) || now, `Approve ${eur(p.amount)} ${esc(p.what)}${p.to_name ? ` to ${esc(p.to_name)}` : ""}?`,
       `<ul class="checks">${w.length ? w.map((x) => `<li class="ck bad">${esc(x)}</li>`).join("") : '<li class="ck ok">All the checks are done.</li>'}</ul>
       <p class="why">Approve only shows the bank details. You pay in your bank app.</p>`,
       `<button class="btn small" type="button" data-t="approve" data-pid="${esc(p.pid)}">Approve</button><button class="btn ghost small" type="button" data-t="open" data-sec="deal">Open the deal</button>`, true, "deal");
   }
   if (stageOf(id) === "offer"){
     const wait = Date.parse(stOf(id).updated_at) || now;
-    if (!dl?.contract) return card("deal", wait, "They offered it to you", `<p class="why">Upload the contract so it can be checked before you sign or pay anything.</p>`, `<button class="btn small" type="button" data-t="open" data-sec="deal">Upload the contract</button>`, true, "deal");
-    if (!dl.signed_at) return card("deal", wait, "Signed the contract?", `<p class="why">${dl.contract.review ? `The contract check said: ${esc(dl.contract.review.verdict || "see the deal")}.` : "The contract is being checked."} Tap I signed once you have.</p>`,
+    if (!dl?.contract) return card("needs", wait, "They offered it to you", `<p class="why">Upload the contract so it can be checked before you sign or pay anything.</p>`, `<button class="btn small" type="button" data-t="open" data-sec="deal">Upload the contract</button>`, true, "deal");
+    if (!dl.signed_at) return card("needs", wait, "Signed the contract?", `<p class="why">${dl.contract.review ? `The contract check said: ${esc(dl.contract.review.verdict || "see the deal")}.` : "The contract is being checked."} Tap I signed once you have.</p>`,
       `<button class="btn small" type="button" data-t="signed">I signed</button><button class="btn ghost small" type="button" data-t="open" data-sec="deal">Open the deal</button>`, true, "deal");
   }
   if (viewSoon) return viewCard();
+  if (extra){ // only a to-do or a "Close it?" waits on this place
+    const since = Math.min(...openTodos().filter((t) => String(t.listing_id) === id).map((t) => Date.parse(t.created_at)), cq ? Date.parse(cq.created_at) : now) || now;
+    return card("needs", since, cq ? "Did they say no?" : "They asked you to do something", "", "", true, "status");
+  }
   return null;
 }
-function todoItems(){ return leadIds().map(todoItem).filter(Boolean).sort((a, b) => a.wait - b.wait); }
-const todoCount = () => todoItems().filter((i) => i.count).length + globalQs().length + (inbox?.open || []).length + openTodos().length;
+function todoItems(){ return leadIds().filter((id) => id !== "null").map(todoItem).filter(Boolean).sort((a, b) => (b.pin - a.pin) || a.wait - b.wait); }
+// ---- Questions about you, asked once (Asa, 30 Oct 2026): the same question from several places (same key, or the same question in
+// other words) is one card; the answer is saved for all places, now and later (replydraft answer_shared) ----
+const ASK_STOP = new Set("the you your are is do does did what which where who how when will would can could have has with and for from that this there their our please".split(" "));
+const askWords = (t) => new Set(String(t ?? "").toLowerCase().replace(/[^a-z0-9à-ÿ]+/g, " ").split(" ").filter((w) => w.length > 2 && !ASK_STOP.has(w)));
+const sameAsk = (a, b) => { const A = askWords(a), B = askWords(b); if (!A.size || !B.size) return false; let n = 0; for (const w of A) if (B.has(w)) n++; return n / Math.min(A.size, B.size) >= 0.6; };
+function sharedQs(){
+  const gs = [];
+  const add = (key, text, kind, options, street, since) => {
+    let g = gs.find((x) => x.key === key || sameAsk(x.text, text));
+    if (!g) gs.push(g = { key, text, kind, options: options || [], places: [], since: since || Date.now() });
+    if (!g.places.includes(street)) g.places.push(street);
+    g.since = Math.min(g.since, since || Date.now());
+  };
+  for (const d of unsent()){
+    const id = String(d.listing_id);
+    if (!d.listing_id || isClosed(id) || isSending(d) || askEd[d.id]?.reopen) continue;
+    for (const a of asksOf(d)) if (isShared(a)) add(a.key, a.text, a.kind, a.options, cache[id]?.street || "a place", Date.parse(d.created_at));
+  }
+  for (const q of questions) if (q.scope === "global" && q.kind !== "people" && !q.request_id && !String(q.key).startsWith("decide_"))
+    for (const pl of q.places || []) if (!isClosed(String(pl.listing_id))) add(q.key, q.text, q.kind, q.options, pl.street || "a place", Date.parse(q.created_at));
+  return gs.sort((a, b) => b.places.length - a.places.length || a.since - b.since);
+}
+function sharedCard(g){
+  const opts = g.kind === "yesno" ? ["Yes", "No"] : g.kind === "pick" ? g.options : [];
+  const inp = g.kind === "date" ? `<input class="shin" type="date" aria-label="Your answer">`
+    : g.kind === "money" ? `<label class="money"><span>€</span><input class="shin" type="number" inputmode="decimal" min="0" placeholder="0" aria-label="Amount in euros"></label>`
+    : g.kind === "long" ? `<textarea class="shin" rows="3" placeholder="Your answer" aria-label="Your answer"></textarea>` : `<input class="shin" placeholder="Your answer" aria-label="Your answer">`;
+  return `<article class="tcard qshared" data-skey="${esc(g.key)}" data-stext="${esc(g.text)}" data-n="${g.places.length}">
+    <div class="twhy">${esc(g.text)}</div>
+    <p class="why">${g.places.length > 1 ? `${g.places.length} places ask this` : "Asked by"}: ${g.places.map(esc).join(", ")}.</p>
+    ${opts.length ? `<div class="opts">${opts.map((o) => `<button class="btn ghost small" type="button" data-sh="pick" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</div>`
+      : `<div class="row">${inp}<button class="btn small" type="button" data-sh="save">Save</button></div>`}
+    <div class="btnrow"><button class="btn ghost small" type="button" data-sh="skip">Leave it out</button><small class="why shst"></small></div>
+  </article>`;
+}
+async function sharedClick(e){
+  const card = e.target.closest(".qshared"); if (!card) return false;
+  const b = e.target.closest("[data-sh]"); if (!b) return true;
+  const k = b.dataset.sh, skip = k === "skip", n = Number(card.dataset.n) || 1;
+  const answer = k === "pick" ? b.dataset.v : k === "save" ? card.querySelector(".shin")?.value.trim() : "";
+  if (k === "save" && !answer){ toast("Write an answer first.", null, true); return true; }
+  if (skip && !await confirmBox({ title: "Leave it out?", ok: "Leave it out", body: `<p>Claude rewrites ${n > 1 ? `the ${n} messages` : "the message"} without it and never asks this again.</p>` })) return true;
+  const st = card.querySelector(".shst");
+  card.querySelectorAll("button,input,textarea").forEach((x) => { x.disabled = true; });
+  st.textContent = `Saving and rewriting ${plural(n, "message")}… (about ${Math.max(10, Math.ceil(n / 3) * 10)} seconds)`;
+  try {
+    const r = await post("replydraft", { action: "answer_shared", key: card.dataset.skey, text: card.dataset.stext, ...(skip ? { skip: true } : { answer }) });
+    await Promise.all([loadDrafts(), loadQuestions()]); renderAll(); if (lpId) lpRender();
+    toast(`${skip ? "Left out of every message" : "Saved for every place"}.${r.rewritten ? ` ${plural(r.rewritten, "message")} rewritten.` : ""}${r.failed?.length ? ` Couldn't rewrite: ${r.failed.join(", ")}.` : ""}`,
+      r.undo?.length ? { label: "Undo saving", fn: async () => { await post("replydraft", { action: "undo_facts", facts: r.undo }); toast("Your fact sheet is back as it was. The messages stay as written."); } } : null, !!r.failed?.length);
+  } catch (err){ st.textContent = "Couldn't save: " + err.message; card.querySelectorAll("button,input,textarea").forEach((x) => { x.disabled = false; }); }
+  return true;
+}
+// ---- Claude's questions about your Tell Claude requests (needs_asa), answered here; one unanswered for 3 days closes by itself ----
+let asaQs = [];
+async function loadAsaQs(){ try { asaQs = (await fn("me?requests=1&status=needs_asa")).requests || []; } catch {} }
+function asaCard(r){
+  const left = Math.max(0, 3 - Math.floor((Date.now() - Date.parse(r.done_at || r.created_at)) / 86400000));
+  return `<article class="tcard qasa" data-rid="${r.id}">
+    ${r.listing_id && cache[r.listing_id] ? `<button class="ttl" type="button" data-tdopen="${r.listing_id}">${esc(cache[r.listing_id].street)} <span aria-hidden="true">›</span></button>` : ""}
+    <div class="waitline">You asked ${esc(ago(r.created_at))}: ${quote(r.text, 160)}</div>
+    <div class="twhy">${esc(String(r.reply || "Claude has a question about this.").slice(0, 600))}</div>
+    <div class="row"><input class="asain" placeholder="Your answer" aria-label="Your answer"><button class="btn small" type="button" data-asa="go">Send to Claude</button></div>
+    <div class="btnrow"><button class="btn ghost small" type="button" data-asa="drop">Not needed</button><small class="why">Closes by itself ${left ? `in ${plural(left, "day")}` : "today"} if you don't answer.</small></div>
+  </article>`;
+}
+async function asaClick(e){
+  const card = e.target.closest(".qasa"); if (!card) return false;
+  const b = e.target.closest("[data-asa]"); if (!b) return false; // the place name opens the place (todoClick)
+  const rid = Number(card.dataset.rid), drop = b.dataset.asa === "drop", answer = card.querySelector(".asain").value.trim();
+  if (!drop && !answer){ toast("Write an answer first.", null, true); return true; }
+  b.disabled = true;
+  try {
+    await post("me", { action: "answer_asa", request_id: rid, ...(drop ? { drop: true } : { answer }) });
+    asaQs = asaQs.filter((r) => r.id !== rid); renderAll();
+    toast(drop ? "Closed." : "Sent to Claude. Its answer shows in Tell Claude.", drop ? null : { label: "Open Tell Claude", fn: () => openAsk(null) });
+  } catch (err){ b.disabled = false; fail(err); }
+  return true;
+}
+// ---- the two piles ----
+const otherQs = () => { const ids = new Set(leadIds()); return globalQs().filter((q) => { const m = /^decide_close_(\d+)$/.exec(String(q.key)); return !m || !ids.has(m[1]) || isClosed(m[1]); }); };
+function todoParts(){
+  const items = todoItems(), needs = items.filter((i) => i.tab === "needs"), send = items.filter((i) => i.tab === "send");
+  const shared = sharedQs(), asa = asaQs, oq = otherQs(), un = inbox?.open || [];
+  return { needs, send, shared, asa, oq, un, nNeeds: needs.filter((i) => i.count).length + shared.length + asa.length + oq.length + un.length, nSend: send.filter((i) => i.count).length };
+}
+const todoCount = () => { const p = todoParts(); return p.nNeeds + p.nSend; };
+// Send all sends what's in Ready to send, nothing from Needs you
+const readyDrafts = (p = todoParts()) => { const ids = new Set(p.send.map((i) => i.id)); return unsent().filter((d) => ids.has(String(d.listing_id))); };
+const ibSrc = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : i.source === "email" ? `Email from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
+const unCard = (i) => `<article class="tcard ibc" data-iid="${i.id}">
+  <div class="waitline">${ibSrc(i)} · ${esc(when(i.created_at))}</div>
+  <div class="twhy">Which place is this about?</div>
+  ${i.summary ? `<p class="why">${esc(i.summary)}</p>` : ""}${i.state === "error" ? `<p class="why">Couldn't read it automatically. Picking the place tries again.</p>` : ""}
+  <div class="msg">${esc(i.body || "")}</div>
+  ${ibExtra(i)}
+  <div class="row"><input class="ifind" placeholder="Street name" aria-label="Street name"><button class="btn small ifindb" type="button">Find</button></div>
+  <div class="btnrow icands"></div><div class="btnrow"><button class="btn ghost small danger iign" type="button">Not about housing</button><small class="ist why"></small></div></article>`;
 async function renderInbox(){
   await ensureRows(leadIds());
-  const items = todoItems(), other = globalQs().length + (inbox?.open || []).length + openTodos().length;
-  const n = items.filter((i) => i.count).length + other;
+  const p = todoParts(), n = p.nNeeds + p.nSend;
   $("inboxsub").textContent = n ? `${plural(n, "thing")} waiting on you` : "You're up to date.";
-  const by = Object.fromEntries(TODO_TABS.map(([k]) => [k, items.filter((i) => i.tab === k)]));
-  const has = (k) => k === "other" ? other > 0 : by[k].length > 0;
+  const has = (k) => k === "needs" ? p.needs.length + p.shared.length + p.asa.length + p.oq.length + p.un.length > 0 : p.send.length > 0;
   const tabs = TODO_TABS.filter(([k]) => has(k));
-  if (!has(todoTab)) todoTab = tabs[0]?.[0] || "send";
-  const src = (i) => i.source === "whatsapp" ? `WhatsApp from ${esc(i.sender)}` : i.source === "email" ? `Email from ${esc(i.sender)}` : `Kamernet email${i.subject ? ": " + esc(i.subject) : ""}`;
-  const plan = sendAllPlan(unsent().filter((d) => !isClosed(String(d.listing_id))));
+  if (!has(todoTab)) todoTab = tabs[0]?.[0] || "needs";
+  const plan = sendAllPlan(readyDrafts(p));
   // PC-only sends (Kamernet, WhatsApp, ad sites) wait in kn-send while the PC is off; turning the PC on sends them (up to 3 days)
   const pcWait = !knOnline() && Number(inbox?.health?.kn_queued || 0);
-  const body = todoTab === "other"
-    ? openTodos().map(todoCard).join("") + globalQs().map(questionCard).join("") + ((inbox?.open || []).length ? `<p class="why">These messages came in but couldn't be matched to a place. Find it, tap it, and Claude files it and writes a reply.</p>${inbox.open.map((i) => `<div class="ib" data-iid="${i.id}">
-      <div><b>${src(i)}</b> · ${esc(when(i.created_at))}${i.summary ? " · " + esc(i.summary) : ""}</div>
-      ${i.state === "error" ? `<div>Couldn't read it automatically. Picking the place tries again.</div>` : ""}
-      <div class="body">${esc(i.body || "")}</div>
-      ${ibExtra(i)}
-      <div class="row"><input class="ifind" placeholder="Street name"><button class="btn small ifindb" type="button">Find</button></div>
-      <div class="btnrow icands"></div><div class="btnrow"><button class="btn ghost small danger iign" type="button">Not about housing</button><small class="ist why"></small></div></div>`).join("")}` : "")
-    : (todoTab === "send" ? `<div class="tabhead"><span class="why">Longest waiting first.</span>${plan.go.length > 1 ? `<button class="btn small sendall" type="button">Send all (${plan.go.length})</button>` : ""}</div>` : "")
-      + by[todoTab].map((i) => i.html).join("");
+  const sec = (title, why, html) => html ? `<section class="tsec"><h3 class="lbl">${title}</h3>${why ? `<p class="why">${why}</p>` : ""}${html}</section>` : "";
+  const onlyPlaces = !p.shared.length && !p.asa.length && !p.oq.length && !p.un.length;
+  const places = p.needs.filter((i) => !i.pin).map((i) => i.html).join("");
+  const body = todoTab === "send"
+    ? `<div class="tabhead"><span class="why">Only your tap is needed. Longest waiting first.</span>${plan.go.length > 1 ? `<button class="btn small sendall" type="button">Send all (${plan.go.length})</button>` : ""}</div>` + p.send.map((i) => i.html).join("")
+    : p.needs.filter((i) => i.pin).map((i) => i.html).join("")
+      + sec("Questions about you", "Answer once: it's saved and used for every place that asks, now and later.", p.shared.map(sharedCard).join(""))
+      + (onlyPlaces ? places : sec("Places", "", places))
+      + sec("Claude's questions", "About things you asked in Tell Claude.", p.asa.map(asaCard).join("") + p.oq.map((q) => `<article class="tcard">${questionCard(q)}</article>`).join(""))
+      + sec("Messages without a place", "They came in but couldn't be matched to a place. Find it and Claude files it and writes a reply.", p.un.map(unCard).join(""));
   $("inboxv").innerHTML = tabs.length
-    ? `<p class="lead-txt">Everything waiting on you, one card per place. A tab only shows when it has something in it.</p>
-      <div class="subtabs" role="tablist">${tabs.map(([k, l]) => { const c = k === "other" ? other : by[k].filter((i) => i.count).length; return `<button class="stab${k === todoTab ? " on" : ""}" type="button" role="tab" aria-selected="${k === todoTab}" data-stab="${k}">${l}${c ? ` <span class="n">${c}</span>` : ""}</button>`; }).join("")}</div>
+    ? `<p class="lead-txt">Needs you: what to answer, do or decide. Ready to send: messages that only need your tap. One card per place.</p>
+      <div class="subtabs" role="tablist">${tabs.map(([k, l]) => { const c = k === "needs" ? p.nNeeds : p.nSend; return `<button class="stab${k === todoTab ? " on" : ""}" type="button" role="tab" aria-selected="${k === todoTab}" data-stab="${k}">${l}${c ? ` <span class="n">${c}</span>` : ""}</button>`; }).join("")}</div>
       ${pcWait ? `<p class="why pcwait"><b>${plural(pcWait, "message")} waiting for your PC</b>: they go out when it's on (with Chrome open).</p>` : ""}
       <div class="tlist">${body}</div>`
-    : `<div class="empty"><b>Nothing waiting on you.</b><span>Messages to send, questions, viewings and deal steps land here.</span></div>`;
+    : `<div class="empty"><b>Nothing waiting on you.</b><span>Questions, things to do and messages to send land here.</span></div>`;
   renderBadges();
 }
 // ---- sending, copying and the other To do buttons (also used on the place page) ----
@@ -1521,9 +1642,9 @@ async function todoAct(b){
       if (t === "late" && r.application_id) await post("replydraft", { action: "redo", application_id: r.application_id, instruction: `Say I'm running about 10 minutes late for the viewing at ${new Date(vAt(id)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}; apologise briefly. Nothing else.` });
       await Promise.all([loadDrafts(), loadQuestions()]); renderAll();
       if (t === "late") return openListing(Number(id), "draft");
-      return toast(r.skipped ? "Nothing to answer: the last message is yours." : r.asks?.length ? `They ask ${plural(r.asks.length, "thing")}: answer ${r.asks.filter((a) => !a.answer).length ? "the open ones" : "or check them"} on the card.` : r.questions?.length ? "Written. Claude needs one answer from you first (Answer tab)." : "Written. It's in Send: check it, then send it.");
+      return toast(r.skipped ? "Nothing to answer: the last message is yours." : r.asks?.length ? `They ask ${plural(r.asks.length, "thing")}: answer ${r.asks.filter((a) => !a.answer).length ? "the open ones" : "or check them"} on the card.` : r.questions?.length ? "Written. Claude needs one answer from you first (Needs you)." : "Written. It's in Ready to send: check it, then send it.");
     }
-    if (t === "asksback"){ askEd[d.id] = { reopen: true }; todoTab = "answer"; return renderAll(); }
+    if (t === "asksback"){ askEd[d.id] = { reopen: true }; todoTab = "needs"; return renderAll(); }
     if (t === "tell" || t === "tellx"){ tellOpen[d.id] = t === "tell"; renderAll(); if (t === "tell") setTimeout(() => $("inboxv").querySelector(`[data-id="${id}"] .telltxt`)?.focus(), 0); return; }
     if (t === "tellgo"){
       const instruction = card.querySelector(".telltxt")?.value.trim(); if (!instruction) return toast("Write what Claude should change first.", null, true);
@@ -1563,7 +1684,7 @@ function sendAllPlan(ds){
 }
 // only = a set of listing ids (a saved search's "Message all of these"); confirmed = that already asked "Are you sure?"
 async function sendAll(only = null, confirmed = false){
-  const { go, skip } = sendAllPlan(unsent().filter((d) => !isClosed(String(d.listing_id)) && (!only || only.has(String(d.listing_id)))));
+  const { go, skip } = sendAllPlan(only ? unsent().filter((d) => !isClosed(String(d.listing_id)) && only.has(String(d.listing_id))) : readyDrafts());
   if (!go.length) return toast("Nothing here can be sent: add the landlord's email or phone first.");
   const nm = (n) => plural(go.filter(([, ch]) => ch === n).length, "message");
   const pc = go.some(([, ch]) => ch !== "email"), fills = go.filter(([, , t]) => /\[YOUR ANSWER/i.test(t)).length;
@@ -1589,12 +1710,12 @@ $("inboxv").addEventListener("click", async (e) => {
   if (e.target.closest(".sendall")) return sendAll();
   const sb = e.target.closest(".stab");
   if (sb){ todoTab = sb.dataset.stab; store.set("kn_todo_tab", todoTab); return renderInbox(); }
-  if (await askClick(e) || await todoClick(e)) return;
+  if (await sharedClick(e) || await asaClick(e) || await askClick(e) || await todoClick(e)) return;
   if (await questionClick(e)) return;
   const tb = e.target.closest("[data-t]");
   if (tb && tb.closest("[data-id]")) return todoAct(tb);
   if (e.target.closest("a")) return;
-  const it = e.target.closest(".ib");
+  const it = e.target.closest(".ibc");
   if (!it) return;
   const iid = Number(it.dataset.iid), st = it.querySelector(".ist"), cands = it.querySelector(".icands");
   if (e.target.closest(".ifindb")){
@@ -1626,7 +1747,7 @@ $("inboxv").addEventListener("click", async (e) => {
     st.textContent = "Filing it and writing a reply…";
     try {
       await post("inbox", { action: "assign", inbox_id: iid, listing_id: Number(b.dataset.lid) });
-      await Promise.all([loadStatuses(), loadThreads(), loadDrafts(), loadInbox()]); renderAll(); toast("Filed. The reply is in the Send tab.");
+      await Promise.all([loadStatuses(), loadThreads(), loadDrafts(), loadInbox()]); renderAll(); toast("Filed. The reply is on that place's card in To do.");
     } catch (err) { st.textContent = "Couldn't file it: " + err.message; }
   } else if (e.target.closest(".iign")){
     if (!await confirmBox({ title: "Not about housing?", ok: "Hide it", danger: true, body: "<p>It disappears from here for good.</p>" })) return;
@@ -1647,7 +1768,9 @@ function ibExtra(i){
   return out.join("");
 }
 $("inboxv").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && e.target.closest(".ifind")) e.target.closest(".ib").querySelector(".ifindb").click();
+  if (e.key === "Enter" && e.target.closest(".ifind")) e.target.closest(".ibc").querySelector(".ifindb").click();
+  if (e.key === "Enter" && e.target.matches("input.shin")) e.target.closest(".qshared").querySelector('[data-sh="save"]').click();
+  if (e.key === "Enter" && e.target.matches(".asain")) e.target.closest(".qasa").querySelector('[data-asa="go"]').click();
 });
 
 // =====================================================================================
@@ -2006,7 +2129,7 @@ function standUndo(id, before){
 // ---- every button on the listing page ----
 $("lpBody").addEventListener("click", async (e) => {
   const id = lpId; if (!id) return;
-  if (await askClick(e)) return;
+  if (await askClick(e) || await todoClick(e)) return;
   if (await questionClick(e)) return;
   const b = e.target.closest("button"); if (!b) return;
   const before = { ...stOf(id) };
@@ -2325,7 +2448,7 @@ async function dealChange(e){
 // TELL CLAUDE
 // =====================================================================================
 let askListing = null, askPoll = null, askPolls = 0;
-const RQ = { open: "Waiting for Claude", working: "Claude is on it…", done: "Done", needs_chat: "Needs a Claude chat (it's a change to this site)", needs_asa: "Claude has a question for you", declined: "Not done", failed: "Stopped: tap Try again if you still want it" };
+const RQ = { open: "Waiting for Claude", working: "Claude is on it…", done: "Done", needs_chat: "Needs a Claude chat (it's a change to this site)", needs_asa: "Claude has a question for you (it's in To do)", answered: "You answered Claude's question", lapsed: "Closed: Claude's question wasn't needed or went unanswered for 3 days", declined: "Not done", failed: "Stopped: tap Try again if you still want it" };
 async function loadRequests(){
   try {
     const rs = (await fn("me?requests=1")).requests || [];
@@ -2566,7 +2689,7 @@ function renderAll(){
 // quiet = the timer did it: don't redraw an open listing while you're typing in it
 async function refreshAll(quiet = false){
   // one part failing (a slow function, a bad answer) must not stop the rest
-  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadPeople(), loadDeals(), loadInbox(), loadSites(), loadTodos(), headline(), refreshRows(leadIds())]);
+  await Promise.allSettled([loadStatuses(), loadThreads(), loadDrafts(), loadQuestions(), loadPeople(), loadDeals(), loadInbox(), loadSites(), loadTodos(), loadAsaQs(), headline(), refreshRows(leadIds())]);
   const typing = document.activeElement?.closest?.("#lp") && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
   const typingTodo = document.activeElement?.closest?.("#inboxv") && /INPUT|TEXTAREA/.test(document.activeElement.tagName); // keep what you're typing (answers are kept anyway)
   try { if (lpId){ await loadThread(lpId); if (!(quiet && typing)) lpRender(); } } catch {}
@@ -2855,7 +2978,7 @@ $("apBox").addEventListener("click", async (e) => {
 async function boot(){
   $("sort").value = S.sort; drawSortDir();
   renderLoc(); renderActive(); applyView();
-  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions(), loadTodos(), loadPeople(), loadFiles()]);
+  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions(), loadTodos(), loadAsaQs(), loadPeople(), loadFiles()]);
   showTab(location.hash === "#todo" ? "inbox" : ["find", "leads", "inbox", "more"].includes(S.tab) ? S.tab : "find");
   if (location.hash === "#todo") history.replaceState(null, "", location.pathname + location.search);
   load(true); headline(); loadTags(); loadCities(); loadInbox(); loadSites(); loadFree();

@@ -471,3 +471,17 @@ body.selecting .ssrow{display:none}
 .attach{display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:14px}
 .attach .chips{display:flex;flex-wrap:wrap;gap:6px}
 #filesPanel select{border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--surface);color:var(--ink);font:inherit}
+/* To do, two piles (30 Oct 2026): "First, do this" on a place's card, one-answer questions, sections */
+.tdo{display:flex;flex-direction:column;gap:8px;background:var(--warn-soft);border-radius:10px;padding:10px;font-size:14px}
+.tdrow{display:flex;flex-direction:column;gap:6px}
+.tdrow + .tdrow{border-top:1px solid var(--line);padding-top:8px}
+.tdtxt{font-weight:500}
+.tsec{display:flex;flex-direction:column;gap:10px}
+.tsec + .tsec,.tlist > .tcard + .tsec{margin-top:8px}
+.tsec > .why{margin:-4px 0 0}
+.qshared{border-color:var(--warn)}
+.qshared .row,.qasa .row,.ibc .row{display:flex;gap:6px;align-items:center}
+.qshared input,.qshared textarea,.qasa input,.ibc input{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 10px;min-height:40px;flex:1;min-width:0;width:100%;font:inherit}
+.qshared .money{display:flex;align-items:center;gap:6px;flex:1}
+.ibc .msg{max-height:140px;overflow:auto}
+.tlist > .tcard > .qcard{margin:0;border:0;padding:0}
