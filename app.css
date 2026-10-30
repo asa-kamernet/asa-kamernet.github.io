@@ -467,3 +467,7 @@ body.selecting .ssrow{display:none}
 .apitem .api{width:22px;flex:0 0 22px;text-align:center;font-weight:700;color:var(--accent)}
 .apitem.waiting .api{color:var(--bad)}
 .apmsg{font-size:13px;color:var(--muted);white-space:pre-wrap;margin-top:2px}
+/* My files on an email draft (30 Oct 2026) */
+.attach{display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:14px}
+.attach .chips{display:flex;flex-wrap:wrap;gap:6px}
+#filesPanel select{border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--surface);color:var(--ink);font:inherit}

@@ -198,7 +198,7 @@ function showTab(tab){
   if (tab !== "leads" && lselecting) lSetSelect(false);
   if (tab === "leads") renderLeads();
   if (tab === "inbox") renderInbox();
-  if (tab === "more"){ loadAutopilot(); drawHealth(); drawSites(); loadSites(); loadFacts(); loadPeople().then(drawPeople); }
+  if (tab === "more"){ loadAutopilot(); loadFiles(); drawHealth(); drawSites(); loadSites(); loadFacts(); loadPeople().then(drawPeople); }
   if (tab === "find" && S.view === "map" && map) setTimeout(() => map.invalidateSize(), 0);
   window.scrollTo(0, 0);
 }
@@ -295,7 +295,7 @@ function statePill(id){
   return (sg !== "none" || statuses[id] ? `<span class="badge stage">${STAGE_LABEL[sg]}</span>` : "") + (op === "want" ? `<span class="badge ai">♥ Want it</span>` : "");
 }
 // "Something's not right" (rules on the server, no AI): a short badge; once the AI has read the ad, its verdict
-const CHECK_SHORT = [[/under €250|less than half/, "Price unusually low"], [/WhatsApp/, "WhatsApp contact"], [/abroad/, "Landlord abroad"], [/money app/, "Money app"], [/post/, "Keys by post"], [/before a viewing/, "Pay before viewing"]];
+const CHECK_SHORT = [[/private address/, "Private email address"], [/under €250|less than half/, "Price unusually low"], [/WhatsApp/, "WhatsApp contact"], [/abroad/, "Landlord abroad"], [/money app/, "Money app"], [/post/, "Keys by post"], [/before a viewing/, "Pay before viewing"]];
 const scammy = (r) => [...(r.tags || []), ...(r.distill_tags || [])].includes("scam-risk") || (r.distilled?.red_flags || []).length > 0;
 function checkBadge(r){
   if (!(r.check_reasons || []).length && !scammy(r)) return "";
@@ -830,7 +830,7 @@ function questionCard(q){
     ${opts.length || q.last_answer ? `<div class="opts">${opts.map((o) => btn(o)).join("")}${q.last_answer ? btn(q.last_answer, `Same as before: ${q.last_answer}`) : ""}</div>` : ""}
     ${q.kind === "yesno" ? "" : `<div class="row"><input class="qin"${q.kind === "date" ? ' type="date"' : ""} placeholder="${per ? "Same answer for all" : "Your answer"}" aria-label="Your answer"><button class="btn small qsave" type="button">Save</button></div>`}
     ${per ? `<details><summary>Different for some places</summary>${places.map((p) => `<label class="qpl"><span>${esc(p.street || "a place")}</span><input class="qpp" data-lid="${p.listing_id}" placeholder="Answer for this place"></label>`).join("")}<button class="btn small qsavepp" type="button">Save these</button></details>` : ""}
-    <div class="btnrow"><button class="btn ghost small qno" type="button">Not needed</button><small class="qst why"></small></div>
+    <div class="btnrow">${/^decide_close_\d+$/.test(String(q.key)) ? "" : '<button class="btn ghost small qno" type="button">Not needed</button>'}<small class="qst why"></small></div>
   </div>`;
 }
 // one handler for question cards, in To do and on the listing page; true when the click was on a card
@@ -995,15 +995,30 @@ function todoCard(t){
     <div class="waitline">They asked ${esc(when(t.created_at))}</div>
     <div class="twhy">${esc(t.text)}</div>
     ${t.phone ? `<p class="why">Their number: <b>${esc(t.phone)}</b></p>` : ""}
-    <p class="why">Not part of your reply: do it yourself, then tap I did it.</p>
-    <div class="btnrow">${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
+    <p class="why">${waAsk(t) ? "Send for me sends them a short WhatsApp from your number asking when you can come and view it (you still pick the time). It's also done by itself when a landlord asks this from now on." : "Not part of your reply: do it yourself, then tap I did it."}</p>
+    <div class="btnrow">${waAsk(t) ? `<button class="btn small" type="button" data-td="wa">Send for me</button>` : ""}${host ? `<a class="btn small" href="${esc(t.link)}" target="_blank" rel="noopener noreferrer">Open ${esc(host)}</a>` : ""}${t.phone ? `<a class="btn ghost small" href="tel:${esc(t.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}<button class="btn ghost small" type="button" data-td="done">I did it</button><button class="btn ghost small" type="button" data-td="no">Not doing it</button></div>
   </article>`;
 }
+const waAsk = (t) => !!t.phone && /whats ?app/i.test(t.text || ""); // "Message the landlord on WhatsApp": autopilot's first WhatsApp (30 Oct 2026)
 const openTodos = () => todos.filter((t) => !isClosed(String(t.listing_id)));
 async function todoClick(e){
   const o = e.target.closest("[data-tdopen]"); if (o){ openListing(Number(o.dataset.tdopen)); return true; }
   const b = e.target.closest("[data-td]"); if (!b) return false;
   const id = Number(b.closest("[data-tdid]").dataset.tdid), status = b.dataset.td;
+  if (status === "wa"){ // your tap: the first WhatsApp asking when you can view (autopilot wa_first; nothing else goes out)
+    const t = todos.find((x) => x.id === id); if (!t) return true;
+    const dry = await post("autopilot", { action: "wa_first", listing_id: t.listing_id, phone: t.phone, dry_run: true }).catch((err) => ({ reason: err.message }));
+    if (!dry.would_send){ toast(`Can't send it: ${dry.reason || "unknown reason"}.`, null, true); return true; }
+    if (!await confirmBox({ title: `WhatsApp ${t.phone}?`, ok: "Send it", body: `<p>Chrome on your PC sends this from WhatsApp Web, from your own number:</p><p class="why" style="white-space:pre-wrap">${esc(dry.text)}</p>` })) return true;
+    try {
+      const r = await post("autopilot", { action: "wa_first", listing_id: t.listing_id, phone: t.phone });
+      if (!r.sent) return toast(`Not sent: ${r.reason || "unknown reason"}.`, null, true), true;
+      window.postMessage({ type: "kn-sender-poke" }, location.origin);
+      toast(r.helper_online === false ? "Waiting for your PC: it goes out when Chrome is open on it. The card closes once it's sent." : "Sending on WhatsApp… The card closes once it's sent.");
+      await Promise.all([loadDrafts(), loadTodos()]); renderAll();
+    } catch (err){ fail(err); }
+    return true;
+  }
   try {
     await post("replydraft", { action: "todo_set", id, status });
     todos = todos.filter((t) => t.id !== id); renderAll();
@@ -1071,6 +1086,58 @@ function drawPeople(){
   }).join("") || '<p class="why">Nobody yet. Add the people who might move in with you; then you pick them per place.</p>';
 }
 $("pplAdd").onclick = () => editPerson();
+
+// MY FILES (More; 30 Oct 2026): photos and documents uploaded once (private storage), attached to an email draft with a tap.
+// They go out only with your own Send for me tap on that card (never by autopilot, Tell Claude or Send all).
+let myFiles = [];
+const FILE_LABEL = { photo: "Photo", payslip: "Payslip", id: "ID", contract: "Contract", employer: "Employer statement", cv: "CV", other: "Other" };
+async function loadFiles(){ try { myFiles = (await post("deal", { action: "files" })).files || []; } catch { myFiles = []; } drawFiles(); }
+function drawFiles(){
+  const box = $("filesList"); if (!box) return;
+  box.innerHTML = myFiles.map((f) => `<div class="person" data-fid="${f.id}"><b>${esc(f.name)}</b><div class="why">${esc(FILE_LABEL[f.label] || f.label)} · ${Math.max(1, Math.round((f.size || 0) / 1024))} KB · ${esc(when(f.created_at))}</div>
+    <div class="btnrow"><button class="btn ghost small fopen" type="button">Open</button><button class="btn ghost small danger fdel" type="button">Delete</button></div></div>`).join("")
+    || '<p class="why">No files yet. Add photos of yourself, a payslip or an employer statement once; then you can attach them to an email reply.</p>';
+}
+async function openFile(id){
+  const w = window.open("", "_blank", "noopener");
+  try { const r = await post("deal", { action: "file_url", id }); if (w) w.location = r.url; else location.href = r.url; } catch (err){ w?.close(); fail(err); }
+}
+$("filesList").addEventListener("click", async (e) => {
+  const c = e.target.closest("[data-fid]"); if (!c) return;
+  const id = Number(c.dataset.fid);
+  if (e.target.closest(".fopen")) return openFile(id);
+  if (e.target.closest(".fdel")){
+    try { await post("deal", { action: "file_delete", id }); await loadFiles(); toast("Deleted.", { label: "Undo", fn: async () => { await post("deal", { action: "file_restore", id }); await loadFiles(); } }); } catch (err){ fail(err); }
+  }
+});
+$("fileAdd").addEventListener("click", () => $("fileIn").click());
+$("fileIn").addEventListener("change", async () => {
+  const fs = [...$("fileIn").files]; $("fileIn").value = ""; if (!fs.length) return;
+  for (const f of fs){
+    if (f.size > 8 * 1024 * 1024){ toast(`${f.name} is over 8 MB.`, null, true); continue; }
+    toast(`Uploading ${f.name}…`);
+    try {
+      const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.onerror = () => bad(new Error("couldn't read the file")); r.readAsDataURL(f); });
+      await post("deal", { action: "file_upload", label: $("fileLabel").value, name: f.name, mime: f.type || "application/octet-stream", data });
+    } catch (err){ fail(err); }
+  }
+  await loadFiles(); toast("Saved in My files.");
+});
+// on an email draft: which of My files go with it (the confirm box of Send for me lists them again)
+function attachHtml(d, sending){
+  const on = new Set(d.attach || []);
+  if (!myFiles.length && !on.size) return `<p class="why">To send photos or documents with this email, add them once in More › My files.</p>`;
+  return `<div class="attach"><b>Attach</b> <small class="why">only goes with your own Send for me tap</small><div class="chips">${myFiles.map((f) => `<button class="chip" type="button" data-attach="${f.id}" aria-pressed="${on.has(f.id)}"${sending ? " disabled" : ""}>${esc(f.name)} <small>${esc(FILE_LABEL[f.label] || "")}</small></button>`).join("")}</div>
+    ${on.size ? `<p class="why">Sending it yourself (Copy and open)? Attach them in your email: ${[...on].map((fid) => `<button class="linkbtn" type="button" data-fileopen="${fid}">${esc(myFiles.find((f) => f.id === fid)?.name || "file")}</button>`).join(", ")}</p>` : ""}</div>`;
+}
+document.addEventListener("click", async (e) => {
+  const o = e.target.closest("[data-fileopen]"); if (o) return openFile(Number(o.dataset.fileopen));
+  const b = e.target.closest("[data-attach]"); if (!b) return;
+  const d = drafts.find((x) => x.id === Number(b.closest("[data-aid]")?.dataset.aid)); if (!d) return;
+  const id = Number(b.dataset.attach), on = new Set(d.attach || []);
+  if (on.has(id)) on.delete(id); else on.add(id);
+  try { const r = await post("deal", { action: "attach", application_id: d.id, files: [...on] }); d.attach = r.attach; lpRender(); } catch (err){ fail(err); }
+});
 $("pplList").addEventListener("click", async (e) => {
   const row = e.target.closest(".person"); if (!row) return;
   const p = people.find((x) => x.id === Number(row.dataset.pid)); if (!p) return;
@@ -1365,6 +1432,7 @@ async function renderInbox(){
       <div><b>${src(i)}</b> · ${esc(when(i.created_at))}${i.summary ? " · " + esc(i.summary) : ""}</div>
       ${i.state === "error" ? `<div>Couldn't read it automatically. Picking the place tries again.</div>` : ""}
       <div class="body">${esc(i.body || "")}</div>
+      ${ibExtra(i)}
       <div class="row"><input class="ifind" placeholder="Street name"><button class="btn small ifindb" type="button">Find</button></div>
       <div class="btnrow icands"></div><div class="btnrow"><button class="btn ghost small danger iign" type="button">Not about housing</button><small class="ist why"></small></div></div>`).join("")}` : "")
     : (todoTab === "send" ? `<div class="tabhead"><span class="why">Longest waiting first.</span>${plan.go.length > 1 ? `<button class="btn small sendall" type="button">Send all (${plan.go.length})</button>` : ""}</div>` : "")
@@ -1389,9 +1457,11 @@ async function sendDraft(d, ch, text){
     site: [`Send this through ${siteName(cache[d.listing_id]?.source)}?`, `Chrome on your PC fills in the ad's contact form and presses send. If the form has a consent box or a captcha, it comes back to you to send yourself. ${pc}`],
   }[ch];
   if (!how || !canSendFor(d, ch)) { toast("There's no way to send this for you yet: add the landlord's email or phone on the place page.", null, true); return false; }
-  if (!await confirmBox({ title: how[0], ok: "Send it now", body: `<p>${how[1]}</p><p class="why" style="white-space:pre-wrap">${esc(text.slice(0, 400))}${text.length > 400 ? "…" : ""}</p>` })) return false;
+  const files = (d.attach || []).map((fid) => myFiles.find((f) => f.id === fid)?.name).filter(Boolean);
+  if (!await confirmBox({ title: how[0], ok: "Send it now", body: `<p>${how[1]}</p>${files.length ? `<p><b>With ${plural(files.length, "file")} attached:</b> ${esc(files.join(", "))}</p>` : ""}<p class="why" style="white-space:pre-wrap">${esc(text.slice(0, 400))}${text.length > 400 ? "…" : ""}</p>` })) return false;
   const mail = ch === "email";
-  const r = await post(mail ? "deal" : "kn-send", mail ? { action: "send_email", application_id: aid, draft: text } : { action: "queue", application_id: aid, draft: text, channel: ch });
+  // files go only with this tap (with_files); autopilot and Tell Claude never send them
+  const r = await post(mail ? "deal" : "kn-send", mail ? { action: "send_email", application_id: aid, draft: text, ...((d.attach || []).length ? { with_files: true } : {}) } : { action: "queue", application_id: aid, draft: text, channel: ch });
   if (!mail) window.postMessage({ type: "kn-sender-poke" }, location.origin); // on the PC itself, the helper looks right away
   delete draftEdits[aid]; await loadDrafts(); lpRender(); renderAll(); watchSending();
   toast(mail ? (r.script_ready ? "Sending… You can cancel it in the next minute." : "Queued. The Gmail connection isn't running right now (see More), so it goes out as soon as it is.")
@@ -1484,6 +1554,7 @@ function sendAllPlan(ds){
     if (isSending(d)) continue;
     if (waitsOnQ(d)){ skip.push([d, "waiting on a question in To do"]); continue; }
     if (asksPending(d)){ skip.push([d, "waiting on your answers in To do"]); continue; }
+    if ((d.attach || []).length){ skip.push([d, "it has files attached: send it on its own card"]); continue; }
     const ch = chanOf(d), text = draftEdits[d.id] ?? d.draft, c = contacts[d.listing_id] || {};
     if (ch === "email" && c.email || ch === "kamernet" || ch === "whatsapp" && c.phone || ch === "site" && cache[d.listing_id]?.url) go.push([d, ch, text]);
     else skip.push([d, "no email, phone or link saved for the landlord"]);
@@ -1534,8 +1605,23 @@ $("inboxv").addEventListener("click", async (e) => {
       st.textContent = r.candidates.length ? "Tap the right one:" : "No place with that street. Try part of the name.";
       cands.innerHTML = r.candidates.map((c) => `<button class="btn ghost small icand" data-lid="${c.id}" data-name="${esc(c.street)}" type="button">${esc(c.street)}, ${esc(c.city)} · ${eur(c.price)}${c.gone_at ? " · gone" : ""}</button>`).join("");
     } catch (err) { st.textContent = "Couldn't search: " + err.message; }
-  } else if (e.target.closest(".icand")){
-    const b = e.target.closest(".icand");
+  } else if (e.target.closest(".inoguess")){ // "No" to Claude's guess: it's forgotten, and the number is asked which place (once)
+    st.textContent = "Noted…";
+    try {
+      const r = await post("inbox", { action: "not_guess", inbox_id: iid });
+      await loadInbox(); renderInbox(); toast(r.asked ? "OK. Asking them which place it's about." : "OK. Pick the place below, or wait for their next message.");
+    } catch (err) { st.textContent = "Couldn't save: " + err.message; }
+  } else if (e.target.closest(".iask")){
+    if (!await confirmBox({ title: "Ask them which place?", ok: "Send it", body: "<p>Chrome on your PC sends them a short WhatsApp from your number: “Thanks for your message! I'm in touch with a few places on Kamernet: which place (street) is this about?”</p>" })) return;
+    st.textContent = "Asking…";
+    try {
+      const r = await post("inbox", { action: "ask_again", inbox_id: iid });
+      if (!r.asked) { st.textContent = "Not sent: " + (r.reason || "unknown reason"); return; }
+      window.postMessage({ type: "kn-sender-poke" }, location.origin);
+      await loadInbox(); renderInbox(); toast(r.helper_online === false ? "Waiting for your PC to send it." : "Asking them on WhatsApp…");
+    } catch (err) { st.textContent = "Couldn't ask: " + err.message; }
+  } else if (e.target.closest(".icand, .iguess")){
+    const b = e.target.closest(".icand, .iguess");
     if (!await confirmBox({ title: `File it under ${b.dataset.name}?`, ok: "Yes, file it", body: "<p>Claude adds it to that place's conversation and writes a reply for you to check. Nothing is sent.</p>" })) return;
     st.textContent = "Filing it and writing a reply…";
     try {
@@ -1548,6 +1634,18 @@ $("inboxv").addEventListener("click", async (e) => {
     catch (err) { st.textContent = "Couldn't hide it: " + err.message; }
   }
 });
+// unknown WhatsApp numbers (30 Oct 2026): Claude's guess from the whole chat, and the "which place?" ask as it really went
+function ibExtra(i){
+  if (i.source !== "whatsapp") return "";
+  const a = i.ask, out = [];
+  if (i.wa_name) out.push(`<div class="why">Their WhatsApp name: ${esc(i.wa_name)}</div>`);
+  if (i.guess_listing_id) out.push(`<div class="decide"><b>Is this about ${esc(i.guess_street || "that place")}?</b>${i.guess_why ? `<p class="why">${esc(i.guess_why)}</p>` : ""}<div class="btnrow"><button class="btn small iguess" type="button" data-lid="${i.guess_listing_id}" data-name="${esc(i.guess_street || "that place")}">Yes</button><button class="btn ghost small inoguess" type="button">No</button></div></div>`);
+  if (a?.status === "sent") out.push(`<div class="why">Asked them which place (${esc(when(a.at))}). If they don't answer within 3 days, this card closes by itself.</div>`);
+  else if (a?.status === "sending") out.push(`<div class="why">Asking them which place: waiting for your PC to send it.</div>`);
+  else if (a?.status === "failed") out.push(`<div class="flags">Asking them which place didn't go out: ${esc(a.error || "unknown error")}</div><div class="btnrow"><button class="btn small iask" type="button">Try again</button></div>`);
+  else if (!i.guess_listing_id) out.push(`<div class="btnrow"><button class="btn ghost small iask" type="button">Ask them which place</button></div>`);
+  return out.join("");
+}
 $("inboxv").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.closest(".ifind")) e.target.closest(".ib").querySelector(".ifindb").click();
 });
@@ -1599,6 +1697,7 @@ function lpRender(){
     ${clashHtml(r)}
     <section class="sec" id="lp-status"><div class="sechead"><h3>Where it stands</h3><button class="linkbtn" type="button" data-a="steps">${lpSteps ? "Hide steps" : "All steps"}</button></div>
       ${segsHtml(id, true)}
+      ${x.closed === "them_no" && x.auto_closed ? `<div class="headsup"><b>Autopilot closed this: they said no${x.auto_closed.why ? ` (“${esc(x.auto_closed.why)}”)` : ""}.</b><div class="btnrow"><button class="btn ghost small" type="button" data-a="bring">Undo: keep it open</button></div></div>` : ""}
       <p class="stageline">${isArchived(id) ? `${esc(archLabel(id))}: ${esc(archWhy(id))}` : sg === "moved" ? "Moved in · your home" : `${STAGE_LABEL[sg]} · step ${STAGES.indexOf(sg) + 1} of ${STAGES.length}`}</p>
       ${lpSteps ? `<ol class="steps">${STAGES.map((k, i) => { const cur = STAGES.indexOf(sg); return `<li><button type="button" class="step${i < cur || sg === "moved" ? " done" : i === cur ? " cur" : ""}" data-stage="${k}"><span class="dot"></span><span>${STAGE_LABEL[k]}</span><span class="hint">${STAGE_HINT[k]}</span></button></li>`; }).join("")}</ol>
         <p class="why">It moves by itself with your messages, the viewing and the deal. Tap a step only to correct it.</p>` : ""}
@@ -1772,6 +1871,7 @@ const mapUrl = (r) => "https://www.google.com/maps/search/?api=1&query=" + encod
 
 // ---- your message: write, check, send ----
 function chanOf(d){ // the channel the landlord last used; a first message goes through the ad's site (a place you added: email if saved, else WhatsApp)
+  if (["email", "whatsapp", "kamernet", "site"].includes(d.channel)) return d.channel; // the draft's own (30 Oct 2026: email to the address they gave)
   const last = threads[String(d.listing_id)]?.last_channel, c = contacts[d.listing_id] || {}, src = cache[d.listing_id]?.source;
   if (d.kind === "reply" && ["whatsapp", "email"].includes(last)) return last;
   if (src && !["kamernet", "manual"].includes(src)) return d.kind === "reply" && last !== "site" && (c.email || c.phone) ? (c.email ? "email" : "whatsapp") : "site";
@@ -1811,6 +1911,7 @@ function draftSection(id){
       ${asksPending(d) ? `<div class="decide">${askBody(d)}</div>` : ""}
       ${questionsFor(d.id).length && !sending ? `<div class="decide"><b>Open ${questionsFor(d.id).length > 1 ? "questions" : "question"}</b><p class="why">Answer once: it's saved and used in every message that needs it.</p>${questionsFor(d.id).map(questionCard).join("")}</div>` : ""}
       <textarea id="dText" aria-label="Message" ${sending ? "disabled" : ""}>${esc(draftEdits[d.id] ?? d.draft)}</textarea><span class="saved" id="dSaved"></span>
+      ${ch === "email" ? attachHtml(d, sending) : ""}
       ${d.draft_en ? `<details class="english" open><summary>In English (only for you, not sent)</summary><p class="why" style="white-space:pre-wrap">${esc(d.draft_en)}</p></details>` : ""}
       ${send}
       ${sending ? "" : `<div class="btnrow"><button class="btn ghost" type="button" data-d="done" data-ch="${ch}">I sent it</button><button class="btn ghost danger" type="button" data-d="del">Delete</button></div>
@@ -2715,8 +2816,9 @@ async function messageAll(ids){
 // AUTOPILOT (More; Asa, 29 Oct 2026): what it did, and the Stop / Start switch. The rules live on the server (function autopilot).
 // =====================================================================================
 let apData = null;
-const AP_ICON = { sent: "✓", followup: "↻", first: "✉", waiting: "⏸", notified: "🔔", skipped: "–" };
-const AP_TXT = { sent: "Answered", followup: "Sent a follow-up", first: "First message", waiting: "Left for you", notified: "New match", skipped: "Skipped" };
+const AP_ICON = { sent: "✓", followup: "↻", first: "✉", waiting: "⏸", notified: "🔔", skipped: "–", closed: "✕", wa_first: "✆", linked: "🔗", asked: "?", dismissed: "–" };
+const AP_TXT = { sent: "Answered", followup: "Sent a follow-up", first: "First message", waiting: "Left for you", notified: "New match", skipped: "Skipped",
+  closed: "Closed: they said no", wa_first: "First WhatsApp", linked: "Matched an unknown number", asked: "Asked which place", dismissed: "Dropped a chat" };
 async function loadAutopilot(){ try { apData = await fn("autopilot?report=1&days=7"); apOn = apData.on; } catch (e) { apData = { error: e.message }; } drawAutopilot(); }
 function drawAutopilot(){
   const box = $("apBox"); if (!box) return;
@@ -2728,16 +2830,18 @@ function drawAutopilot(){
   for (const x of items) (days[new Date(x.at).toDateString()] ??= []).push(x);
   box.innerHTML = `<div class="apstate ${apData.on ? "on" : "off"}"><b>${apData.on ? "Autopilot is on" : "Autopilot is stopped"}</b>
       <button class="btn small${apData.on ? " ghost danger" : ""}" type="button" id="apToggle">${apData.on ? "Stop autopilot" : "Start autopilot"}</button></div>
-    <p class="why">${apData.on ? `Today: answered ${n("sent")}, follow-ups ${n("followup")}, first messages ${n("first")}, new matches ${n("notified")}, left for you ${n("waiting")}.` : "Nothing goes out by itself: every reply waits for your tap in To do, and saved searches only send alerts."}</p>
+    <p class="why">${apData.on ? `Today: answered ${n("sent")}, follow-ups ${n("followup")}, first messages ${n("first")}, new matches ${n("notified")}, left for you ${n("waiting")}${[["wa_first", "first WhatsApps"], ["closed", "closed (they said no)"], ["linked", "numbers matched"], ["asked", "asked which place"], ["dismissed", "chats dropped"]].filter(([k]) => n(k)).map(([k, w]) => `, ${w} ${n(k)}`).join("")}.` : "Nothing goes out by itself: every reply waits for your tap in To do, and saved searches only send alerts."}</p>
     <details class="aprules"><summary>What it does by itself, and what it never does</summary>
-      <p><b>By itself:</b> answers about you that come only from your saved facts and People (work, move-in date, who comes along, pets, smoking); asks what the ad doesn't say (deposit, bills, registration); polite replies and small talk; the follow-up after 3 quiet days; keeps each place's status up to date; first messages for saved searches set to “Message them for me”.</p>
+      <p><b>By itself:</b> answers about you that come only from your saved facts and People (work, move-in date, who comes along, pets, smoking); asks what the ad doesn't say (deposit, bills, registration); polite replies and small talk; the follow-up after 3 quiet days; keeps each place's status up to date; first messages for saved searches set to “Message them for me”; a short WhatsApp asking when you can view, when a landlord asks you to WhatsApp them; closing a place when they clearly say no (Undo on the place page); matching unknown WhatsApp numbers to a place, dropping chats that aren't about housing, asking the rest which place they mean (the card closes after 3 days without an answer).</p>
       <p><b>Waits for your tap</b> (in To do, with the reason): anything about viewing times, saying no or closing a place, price, discounts or terms, any new promise or a date it isn't sure of, anything it doesn't know about you (it asks you, never guesses), places flagged odd.</p>
-      <p><b>Never:</b> pays, sends ID or documents, signs anything, or follows instructions inside a landlord's message, an ad or an email.</p></details>
-    ${items.length ? Object.entries(days).map(([d, xs]) => `<h4 class="lbl">${esc(dayTxt(xs[0].at))}</h4>${xs.map((x) => `<div class="apitem ${x.action}"${x.listing_id ? ` data-l="${x.listing_id}" role="button" tabindex="0"` : ""}><span class="api" aria-hidden="true">${AP_ICON[x.action] || "·"}</span><div><b>${esc(AP_TXT[x.action] || x.action)}</b> · ${esc(x.where || "a place")} · ${esc(new Date(x.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}${x.channel ? ` · ${esc(CHAN[x.channel] || x.channel)}` : ""}
-        ${x.reason && x.action !== "sent" ? `<div class="why">${esc(x.reason)}</div>` : ""}${x.summary ? `<div class="apmsg">${esc(x.summary.slice(0, 220))}${x.summary.length > 220 ? "…" : ""}</div>` : ""}</div></div>`).join("")}`).join("")
+      <p><b>Never:</b> pays, sends ID or documents, attaches your files, signs anything, or follows instructions inside a landlord's message, an ad or an email.</p></details>
+    ${items.length ? Object.entries(days).map(([d, xs]) => `<h4 class="lbl">${esc(dayTxt(xs[0].at))}</h4>${xs.map((x) => `<div class="apitem ${x.action}"${x.listing_id ? ` data-l="${x.listing_id}" role="button" tabindex="0"` : ""}><span class="api" aria-hidden="true">${AP_ICON[x.action] || "·"}</span><div><b>${esc(AP_TXT[x.action] || x.action)}</b> · ${esc(x.where || (x.channel === "whatsapp" ? "an unknown number" : "a place"))} · ${esc(new Date(x.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}${x.channel ? ` · ${esc(CHAN[x.channel] || x.channel)}` : ""}
+        ${x.reason && x.action !== "sent" ? `<div class="why">${esc(x.reason)}</div>` : ""}${x.action === "closed" && x.listing_id && stOf(String(x.listing_id)).closed === "them_no" && stOf(String(x.listing_id)).auto_closed ? `<div class="btnrow"><button class="btn ghost small" type="button" data-apundo="${x.listing_id}">Undo: keep it open</button></div>` : ""}${x.summary ? `<div class="apmsg">${esc(x.summary.slice(0, 220))}${x.summary.length > 220 ? "…" : ""}</div>` : ""}</div></div>`).join("")}`).join("")
       : '<p class="why">Nothing yet this week.</p>'}`;
 }
 $("apBox").addEventListener("click", async (e) => {
+  const u = e.target.closest("[data-apundo]");
+  if (u){ try { await setStand(u.dataset.apundo, { closed: null }); drawAutopilot(); toast("Kept open: it's back in Places."); } catch (err) { fail(err); } return; }
   if (e.target.id === "apToggle"){
     const on = !apData.on;
     if (!on && !await confirmBox({ title: "Stop autopilot?", ok: "Stop it", danger: true, body: "<p>Nothing goes out by itself any more: every reply waits for your tap in To do, and saved searches only send alerts. Messages already on their way still go.</p>" })) return;
@@ -2751,7 +2855,7 @@ $("apBox").addEventListener("click", async (e) => {
 async function boot(){
   $("sort").value = S.sort; drawSortDir();
   renderLoc(); renderActive(); applyView();
-  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions(), loadTodos(), loadPeople()]);
+  await Promise.all([loadStatuses(), loadThreads(), loadDeals(), loadDrafts(), loadQuestions(), loadTodos(), loadPeople(), loadFiles()]);
   showTab(location.hash === "#todo" ? "inbox" : ["find", "leads", "inbox", "more"].includes(S.tab) ? S.tab : "find");
   if (location.hash === "#todo") history.replaceState(null, "", location.pathname + location.search);
   load(true); headline(); loadTags(); loadCities(); loadInbox(); loadSites(); loadFree();
