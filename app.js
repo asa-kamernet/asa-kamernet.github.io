@@ -1855,7 +1855,7 @@ function lpRender(){
     </section>
     <section class="sec nextbox" id="lp-next"><h3>Next step</h3><div data-id="${id}">${nextHtml(id)}</div></section>
     <section class="sec" id="lp-draft">${draftSection(id)}</section>
-    <section class="sec" id="lp-conv"><h3>Conversation${threads[id] ? ` <small class="why">${plural(threads[id].n, "message")}</small>` : ""}</h3>
+    <section class="sec" id="lp-conv"><h3>Conversation${threads[id] ? ` <small class="why">${plural(threads[id].n, "message")}</small>` : ""} <button class="btn ghost small" type="button" data-reread="${id}" title="Reads the whole conversation again and puts right what is safe (stage, to-do, draft). Sends nothing.">Read again</button></h3>
       <div class="msgs" id="lpMsgs">${threadHtml(id)}</div>
       <details data-k="log"${open.includes("log") ? " open" : ""}><summary>Add a message you sent or got somewhere else</summary>
         <div class="draft" style="margin-top:6px"><textarea id="logBody" rows="3" placeholder="Paste the message here"></textarea>
@@ -3042,5 +3042,18 @@ $("passbtn").onclick = async () => {
   try { await rest("listings?select=id&limit=1"); } catch { return; }
   enterApp();
 };
+// "Read again" (30 Oct 2026): the AI reads this place's whole saved conversation again and puts right only what is safe: the stage, a To do,
+// a waiting draft. Nothing is ever sent. A fallback for when the automatic read of a new message did not run.
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest?.("[data-reread]"); if (!b) return;
+  const id = b.dataset.reread; b.disabled = true; const label = b.textContent; b.textContent = "Reading…";
+  try {
+    const r = (await post("reread", { action: "refresh", listing_id: Number(id) })).refreshed?.[0] || {};
+    if (r.error) toast(`Couldn't read it: ${r.error}`, null, true);
+    else { await Promise.all([loadDrafts(), loadTodos(), loadStatuses(), loadThreads(), loadThread(id)]); lpRender(); renderAll();
+      toast(`${r.skipped ? "You closed this one. " : ""}${r.summary || "Read."}${r.did?.length ? " Done: " + r.did.join(", ") + "." : " Nothing needed fixing."}`); }
+  } catch (err) { toast("Couldn't read it just now. Try again in a minute.", null, true); }
+  b.disabled = false; b.textContent = label;
+});
 $("pass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("passbtn").click(); });
 if (pass) enterApp(); else $("lock").hidden = false;
