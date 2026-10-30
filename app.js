@@ -791,23 +791,6 @@ async function refreshRow(id){
   try { const [r] = await (await rest(`listings?select=${SELECT}&id=eq.${id}`)).json(); if (r) cache[r.id] = r; } catch {}
 }
 const lastAt = (id) => Math.max(Date.parse(threads[id]?.last_at || 0) || 0, Date.parse(stOf(id).updated_at || 0) || 0);
-function moveReason(id){
-  if (needsVerdict(id)) return ["You viewed it " + (stOf(id).viewing_at ? dayTxt(stOf(id).viewing_at) : "") + ". How was it?", "How was it?", "status"];
-  if (needsReply(id)) return [`They wrote ${ago(threads[id].last_at)}${threads[id].last_body ? `: “${threads[id].last_body.slice(0, 110)}${threads[id].last_body.length > 110 ? "…" : ""}”` : ""}`, draftOf(id) ? "Check my reply" : "Reply", "draft"];
-  if (payToApprove(id)) return ["A payment is waiting for your OK.", "Check the payment", "deal"];
-  if (draftReady(id)) return [draftOf(id).kind === "reply" ? "Your reply is written and ready to send." : "Your first message is written and ready to send.", "Check and send", "draft"];
-  return ["", "Open", ""];
-}
-function leadCard(id, why, btn, sec, cls = ""){
-  const r = cache[id] || { id, street: "A listing", city: "" };
-  return `<article class="lead ${cls}" data-id="${id}" data-sec="${sec}" tabindex="0" role="button">
-    ${thumb(r)}
-    <div class="cardtop"><span class="street">${esc(r.street)}</span>${r.price ? priceHtml(r) : ""}</div>
-    <div class="badges">${statePill(id)}<span class="badge">${esc(r.city || "")}</span>${pplIds(peopleAns[id])?.length ? `<span class="badge">${esc(pplNames(peopleAns[id]).replace(/^you and /, "with "))}</span>` : ""}</div>
-    ${why ? `<div class="why">${esc(why)}</div>` : ""}
-    ${btn ? `<button class="btn small nextb" type="button">${esc(btn)}</button>` : ""}
-  </article>`;
-}
 function agendaItems(){
   const now = Date.now(), items = [];
   for (const [id, x] of Object.entries(statuses)) {
