@@ -902,6 +902,10 @@ function askShow(a, v){
   if (!v) return "";
   if (a.kind === "people") return pplIds(v) ? pplNames(v).replace(/^./, (c) => c.toUpperCase()) : v;
   if (a.kind === "slot" && v === "none") return "None of these work: ask for another time";
+  if (a.kind === "slot" && /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(v) && !(a.slots || []).includes(v)){
+    const t = new Date(v);
+    return "Your own time: " + t.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + " at " + v.slice(11, 16) + " (not one of theirs: the reply proposes it)";
+  }
   if (/^\d{4}-\d\d-\d\d(T\d\d:\d\d)?$/.test(v)){
     const t = new Date(v.length === 10 ? v + "T12:00:00" : v);
     return t.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + (v.length > 10 ? " at " + v.slice(11, 16) : "");
@@ -2759,6 +2763,7 @@ const isFree = (d, hh) => !!freeGrid?.[FDAYS[(d.getDay() + 6) % 7]]?.[hh < 12 ? 
 function calText(inp){
   const v = inp.value, dt = inp.type === "datetime-local";
   if (inp.dataset.none) return "None of these work";
+  if (v && dt && inp.dataset.slots && !inp.dataset.slots.split(",").includes(v)) return "Your own time: " + new Date(v).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + " " + v.slice(11, 16);
   if (!v) return inp.dataset.slots ? "Pick one of their times" : dt ? "Pick a date and time" : "Pick a date";
   const d = new Date(dt ? v : v + "T12:00:00");
   return isNaN(d) ? v : d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" }) + (dt ? " " + v.slice(11, 16) : "");
@@ -2782,26 +2787,29 @@ function openCal(inp){
   const slots = inp.dataset.slots ? inp.dataset.slots.split(",").filter(Boolean) : null; // they offered these times: only those can be picked
   const lid = inp.closest("[data-id]")?.dataset.id || lpId || "";
   const start = new Date((sel || slots?.[0]?.slice(0, 10) || (from > ymdL(new Date()) ? from : "") || ymdL(new Date())) + "T12:00:00");
-  cal = { inp, dt: inp.type === "datetime-local", sel, from, slots, lid, time: inp.type === "datetime-local" && v ? v.slice(11, 16) : "", y: start.getFullYear(), m: start.getMonth() };
+  const own = !!(slots && v && !slots.includes(v)); // his own time is already chosen: open the full calendar
+  cal = { inp, dt: inp.type === "datetime-local", sel, from, slots: own ? null : slots, offered: slots, lid, time: inp.type === "datetime-local" && v ? v.slice(11, 16) : "", y: start.getFullYear(), m: start.getMonth() };
   drawCal(); $("calDlg").showModal();
 }
 function drawCal(){
   const c = cal, first = new Date(c.y, c.m, 1), off = (first.getDay() + 6) % 7, today = ymdL(new Date());
   const cells = [...Array(42)].map((_, k) => new Date(c.y, c.m, 1 - off + k)), selD = c.sel ? new Date(c.sel + "T12:00:00") : null;
+  const odays = c.offered ? [...new Set(c.offered.map((s) => s.slice(0, 10)))] : [], busyDays = new Set(Object.entries(statuses).filter(([k, s]) => k !== String(c.lid) && s.viewing_at && !s.closed).map(([, s]) => ymdL(new Date(s.viewing_at))));
   const sdays = c.slots ? [...new Set(c.slots.map((s) => s.slice(0, 10)))] : null;
   const times = c.slots ? c.slots.filter((s) => s.startsWith(c.sel)).map((s) => s.slice(11, 16)) : [...Array(13)].map((_, k) => String(8 + k).padStart(2, "0") + ":00");
   // another viewing less than 2 hours away
   const clash = (t) => { const at = Date.parse(`${c.sel}T${t}`); return Object.entries(statuses).some(([k, s]) => k !== String(c.lid) && s.viewing_at && !s.closed && Math.abs(Date.parse(s.viewing_at) - at) < 7200000); };
   $("calDlg").innerHTML = `<div class="calhead"><button class="btn ghost small" type="button" data-c="prev" aria-label="Previous month">‹</button><b>${first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</b><button class="btn ghost small" type="button" data-c="next" aria-label="Next month">›</button></div>
     <div class="calgrid">${WD.map((w) => `<span class="wd">${w}</span>`).join("")}${cells.map((d) => { const s = ymdL(d);
-      return `<button type="button" data-day="${s}" class="${d.getMonth() !== c.m ? "out" : ""}${s === today ? " today" : ""}${s === c.sel ? " sel" : ""}${s === c.from ? " from" : ""}${sdays?.includes(s) ? " offer" : ""}"${sdays && !sdays.includes(s) ? " disabled" : ""} aria-label="${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}"${s === c.sel ? ' aria-pressed="true"' : ""}>${d.getDate()}</button>`; }).join("")}</div>
+      return `<button type="button" data-day="${s}" class="${d.getMonth() !== c.m ? "out" : ""}${s === today ? " today" : ""}${s === c.sel ? " sel" : ""}${s === c.from ? " from" : ""}${sdays?.includes(s) ? " offer" : ""}${c.offered && !c.slots && odays.includes(s) ? " sug" : ""}${busyDays.has(s) ? " busy" : ""}"${(sdays && !sdays.includes(s)) || (c.offered && !c.slots && s < today) ? " disabled" : ""} aria-label="${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}"${s === c.sel ? ' aria-pressed="true"' : ""}>${d.getDate()}</button>`; }).join("")}</div>
     ${c.from ? `<p class="why" style="margin-top:6px">Green ring: the ad says it's free from ${esc(dayTxt(c.from + "T12:00:00"))}.</p>` : ""}
-    ${sdays ? `<p class="why" style="margin-top:6px">Only the days they offered can be picked (blue ring).</p>` : ""}
+    ${sdays ? `<p class="why" style="margin-top:6px">Only the days they offered can be picked (blue ring).${busyDays.size ? " A dot under a day = another viewing." : ""}</p>` : ""}
+    ${c.offered && !c.slots ? `<p class="why" style="margin-top:6px">Your own time: it will be proposed to them. ★ = the time they suggested${busyDays.size ? ", a dot under a day = another viewing" : ""}.</p>` : sdays && !c.offered ? "" : ""}
     ${c.dt ? `<p class="why" style="margin-top:8px">${selD ? "Pick a time" + (freeGrid ? " (green: you're free then)" : "") : "Pick a day first"}</p>
-      <div class="caltimes">${times.map((t) => { const cl = selD && clash(t); return `<button class="chip${cl ? " clash" : selD && isFree(selD, +t.slice(0, 2)) ? " free" : ""}${t === c.time ? " on" : ""}" type="button" data-tm="${t}"${selD ? "" : " disabled"}>${t}${cl ? " ✗" : ""}</button>`; }).join("")}</div>
+      <div class="caltimes">${times.map((t) => { const cl = selD && clash(t); return `<button class="chip${cl ? " clash" : selD && isFree(selD, +t.slice(0, 2)) ? " free" : ""}${t === c.time ? " on" : ""}" type="button" data-tm="${t}"${selD ? "" : " disabled"}>${t}${c.offered && c.offered.includes(`${c.sel}T${t}`) ? " ★" : ""}${cl ? " ✗" : ""}</button>`; }).join("")}</div>
       ${selD && times.some(clash) ? `<p class="why" style="margin-top:4px">✗ = less than 2 hours from another viewing.</p>` : ""}
       ${c.slots ? "" : `<label class="why" style="display:flex;gap:8px;align-items:center;margin-top:8px">Other time <input type="time" data-c="time" value="${esc(c.time)}"></label>`}` : ""}
-    <div class="calfoot">${c.slots ? `<button class="linkbtn" type="button" data-c="none">None of these work</button>` : `<button class="linkbtn" type="button" data-c="clear">Clear</button>`}<span class="btnrow"><button class="btn ghost small" type="button" data-c="cancel">Cancel</button>${c.dt ? `<button class="btn small" type="button" data-c="ok"${c.sel && c.time ? "" : " disabled"}>Done</button>` : ""}</span></div>`;
+    <div class="calfoot">${c.slots ? `<span class="calalt"><button class="btn small" type="button" data-c="own">Pick another time</button><button class="linkbtn" type="button" data-c="none">None of these work</button></span>` : c.offered ? `<span class="calalt"><button class="linkbtn" type="button" data-c="back">‹ Their times</button><button class="linkbtn" type="button" data-c="none">None of these work</button></span>` : `<button class="linkbtn" type="button" data-c="clear">Clear</button>`}<span class="btnrow"><button class="btn ghost small" type="button" data-c="cancel">Cancel</button>${c.dt ? `<button class="btn small" type="button" data-c="ok"${c.sel && c.time ? "" : " disabled"}>Done</button>` : ""}</span></div>`;
 }
 function calSet(val, none = false){
   const i = cal.inp; i.value = val; $("calDlg").close();
@@ -2817,6 +2825,8 @@ $("calDlg").addEventListener("click", (e) => {
   if (k === "prev" || k === "next"){ const d = new Date(c.y, c.m + (k === "prev" ? -1 : 1), 1); c.y = d.getFullYear(); c.m = d.getMonth(); return drawCal(); }
   if (k === "clear") return calSet("");
   if (k === "none") return calSet("", true);
+  if (k === "own"){ c.slots = null; c.sel = ""; c.time = ""; return drawCal(); }
+  if (k === "back"){ c.slots = c.offered; c.sel = ""; c.time = ""; const d = new Date(c.slots[0].slice(0, 10) + "T12:00:00"); c.y = d.getFullYear(); c.m = d.getMonth(); return drawCal(); }
   if (k === "cancel") return $("calDlg").close();
   if (k === "ok") return calSet(`${c.sel}T${c.time}`);
 });

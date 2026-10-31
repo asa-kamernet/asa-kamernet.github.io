@@ -417,7 +417,7 @@ details.stop .btnrow{margin-top:6px}
 .caltimes{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .caltimes .chip.free{border-color:var(--ok);background:var(--ok-soft)}
 .caltimes .chip.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
-.calfoot{display:flex;justify-content:space-between;gap:8px;margin-top:12px;align-items:center}
+.calfoot{flex-wrap:wrap;display:flex;justify-content:space-between;gap:8px;margin-top:12px;align-items:center}
 /* free times grid in More */
 .fgrid{display:grid;grid-template-columns:auto repeat(7,minmax(0,1fr));gap:3px;font-size:12px;text-align:center;align-items:center}
 .fgrid .h{color:var(--muted)}
@@ -491,3 +491,8 @@ body.selecting .ssrow{display:none}
 .qall .qm{color:var(--accent,#2563eb);font-weight:600;font-size:.9em}.qall .qless{display:none}
 .qall[open] .qs,.qall[open] .qmore{display:none}.qall[open] .qless{display:inline}
 .qall .qfull{white-space:pre-wrap;word-break:break-word;margin-top:4px}
+
+.calgrid button{position:relative}
+.calgrid button.busy::after{content:"";position:absolute;left:50%;bottom:4px;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--bad)}
+.calgrid button.sug::before{content:"★";position:absolute;top:1px;right:3px;font-size:9px;line-height:1;color:var(--accent)}
+.calfoot .calalt{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
