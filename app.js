@@ -2799,6 +2799,12 @@ function drawCal(){
   const times = c.slots ? c.slots.filter((s) => s.startsWith(c.sel)).map((s) => s.slice(11, 16)) : [...Array(13)].map((_, k) => String(8 + k).padStart(2, "0") + ":00");
   // another viewing less than 2 hours away
   const clash = (t) => { const at = Date.parse(`${c.sel}T${t}`); return Object.entries(statuses).some(([k, s]) => k !== String(c.lid) && s.viewing_at && !s.closed && Math.abs(Date.parse(s.viewing_at) - at) < 7200000); };
+  if (c.pending){ // a time outside their offer: warn before it is chosen
+    const t = new Date(c.pending), when = t.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) + " at " + c.pending.slice(11, 16);
+    $("calDlg").innerHTML = `<div class="calwarn"><b>⚠ Not one of their times</b><p>They only offered: ${c.offered.map((x) => esc(askShow({ kind: "slot", slots: c.offered }, x))).join(", ")}.</p><p>${esc(when)} may not suit them. The reply will propose it, and they can say no.</p></div>
+    <div class="calfoot"><button class="linkbtn" type="button" data-c="warnno">‹ Choose again</button><button class="btn small" type="button" data-c="warnok">Propose it anyway</button></div>`;
+    return;
+  }
   $("calDlg").innerHTML = `<div class="calhead"><button class="btn ghost small" type="button" data-c="prev" aria-label="Previous month">‹</button><b>${first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</b><button class="btn ghost small" type="button" data-c="next" aria-label="Next month">›</button></div>
     <div class="calgrid">${WD.map((w) => `<span class="wd">${w}</span>`).join("")}${cells.map((d) => { const s = ymdL(d);
       return `<button type="button" data-day="${s}" class="${d.getMonth() !== c.m ? "out" : ""}${s === today ? " today" : ""}${s === c.sel ? " sel" : ""}${s === c.from ? " from" : ""}${sdays?.includes(s) ? " offer" : ""}${c.offered && !c.slots && odays.includes(s) ? " sug" : ""}${busyDays.has(s) ? " busy" : ""}"${(sdays && !sdays.includes(s)) || (c.offered && !c.slots && s < today) ? " disabled" : ""} aria-label="${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}"${s === c.sel ? ' aria-pressed="true"' : ""}>${d.getDate()}</button>`; }).join("")}</div>
@@ -2811,6 +2817,7 @@ function drawCal(){
       ${c.slots ? "" : `<label class="why" style="display:flex;gap:8px;align-items:center;margin-top:8px">Other time <input type="time" data-c="time" value="${esc(c.time)}"></label>`}` : ""}
     <div class="calfoot">${c.slots ? `<span class="calalt"><button class="btn small" type="button" data-c="own">Pick another time</button><button class="linkbtn" type="button" data-c="none">None of these work</button></span>` : c.offered ? `<span class="calalt"><button class="linkbtn" type="button" data-c="back">‹ Their times</button><button class="linkbtn" type="button" data-c="none">None of these work</button></span>` : `<button class="linkbtn" type="button" data-c="clear">Clear</button>`}<span class="btnrow"><button class="btn ghost small" type="button" data-c="cancel">Cancel</button>${c.dt ? `<button class="btn small" type="button" data-c="ok"${c.sel && c.time ? "" : " disabled"}>Done</button>` : ""}</span></div>`;
 }
+function pickVal(c, v){ if (c.offered && !c.slots && !c.offered.includes(v)){ c.pending = v; return drawCal(); } calSet(v); }
 function calSet(val, none = false){
   const i = cal.inp; i.value = val; $("calDlg").close();
   if (none) i.dataset.none = "1"; else delete i.dataset.none;
@@ -2821,14 +2828,16 @@ $("calDlg").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b || !cal) return;
   const c = cal, k = b.dataset.c;
   if (b.dataset.day){ c.sel = b.dataset.day; if (!c.dt) return calSet(c.sel); const d = new Date(c.sel + "T12:00:00"); c.y = d.getFullYear(); c.m = d.getMonth(); return drawCal(); }
-  if (b.dataset.tm){ c.time = b.dataset.tm; return calSet(`${c.sel}T${c.time}`); }
+  if (b.dataset.tm){ c.time = b.dataset.tm; return pickVal(c, `${c.sel}T${c.time}`); }
   if (k === "prev" || k === "next"){ const d = new Date(c.y, c.m + (k === "prev" ? -1 : 1), 1); c.y = d.getFullYear(); c.m = d.getMonth(); return drawCal(); }
   if (k === "clear") return calSet("");
   if (k === "none") return calSet("", true);
   if (k === "own"){ c.slots = null; c.sel = ""; c.time = ""; return drawCal(); }
   if (k === "back"){ c.slots = c.offered; c.sel = ""; c.time = ""; const d = new Date(c.slots[0].slice(0, 10) + "T12:00:00"); c.y = d.getFullYear(); c.m = d.getMonth(); return drawCal(); }
   if (k === "cancel") return $("calDlg").close();
-  if (k === "ok") return calSet(`${c.sel}T${c.time}`);
+  if (k === "ok") return pickVal(c, `${c.sel}T${c.time}`);
+  if (k === "warnno"){ c.pending = null; return drawCal(); }
+  if (k === "warnok"){ const v = c.pending; c.pending = null; return calSet(v); }
 });
 $("calDlg").addEventListener("change", (e) => { if (e.target.dataset.c === "time"){ cal.time = e.target.value; drawCal(); } });
 

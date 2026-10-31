@@ -496,3 +496,4 @@ body.selecting .ssrow{display:none}
 .calgrid button.busy::after{content:"";position:absolute;left:50%;bottom:4px;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--bad)}
 .calgrid button.sug::before{content:"★";position:absolute;top:1px;right:3px;font-size:9px;line-height:1;color:var(--accent)}
 .calfoot .calalt{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.calwarn{background:var(--bad-soft);border-radius:10px;padding:10px 12px}.calwarn p{margin:6px 0 0;font-size:14px}
